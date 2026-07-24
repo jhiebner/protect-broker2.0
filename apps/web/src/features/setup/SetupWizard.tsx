@@ -112,7 +112,15 @@ export function SetupWizard({
     admin.password.length >= 12 &&
     admin.confirmPassword.length >= 12 &&
     admin.password === admin.confirmPassword;
-  const disableContinue = busy || (activeStep === 0 && requiresAdminCreation && !adminStepValid);
+  const farmStepValid =
+    farm.farmName.trim().length >= 2 &&
+    farm.owner.trim().length >= 2 &&
+    farm.timezone.trim().length >= 2 &&
+    farm.location.trim().length >= 2;
+  const disableContinue =
+    busy ||
+    (activeStep === 0 && requiresAdminCreation && !adminStepValid) ||
+    (activeStep === 2 && !farmStepValid);
 
   const runStep = async () => {
     if (activeStep === 0 && requiresAdminCreation && admin.password !== admin.confirmPassword) {
@@ -124,6 +132,12 @@ export function SetupWizard({
     if (activeStep === 0 && requiresAdminCreation && admin.password.length < 12) {
       setSeverity('error');
       setMessage('Administrator password must be at least 12 characters.');
+      return;
+    }
+
+    if (activeStep === 2 && !farmStepValid) {
+      setSeverity('error');
+      setMessage('Please complete farm name, owner, timezone, and location before continuing.');
       return;
     }
 
@@ -319,24 +333,48 @@ export function SetupWizard({
                 label="Farm Name"
                 value={farm.farmName}
                 onChange={(event) => setFarm((current) => ({ ...current, farmName: event.target.value }))}
+                error={farm.farmName.length > 0 && farm.farmName.trim().length < 2}
+                helperText={
+                  farm.farmName.length > 0 && farm.farmName.trim().length < 2
+                    ? 'Use at least 2 characters.'
+                    : undefined
+                }
                 fullWidth
               />
               <TextField
                 label="Owner"
                 value={farm.owner}
                 onChange={(event) => setFarm((current) => ({ ...current, owner: event.target.value }))}
+                error={farm.owner.length > 0 && farm.owner.trim().length < 2}
+                helperText={
+                  farm.owner.length > 0 && farm.owner.trim().length < 2
+                    ? 'Use at least 2 characters.'
+                    : undefined
+                }
                 fullWidth
               />
               <TextField
                 label="Timezone"
                 value={farm.timezone}
                 onChange={(event) => setFarm((current) => ({ ...current, timezone: event.target.value }))}
+                error={farm.timezone.length > 0 && farm.timezone.trim().length < 2}
+                helperText={
+                  farm.timezone.length > 0 && farm.timezone.trim().length < 2
+                    ? 'Timezone is required.'
+                    : undefined
+                }
                 fullWidth
               />
               <TextField
                 label="Location"
                 value={farm.location}
                 onChange={(event) => setFarm((current) => ({ ...current, location: event.target.value }))}
+                error={farm.location.length > 0 && farm.location.trim().length < 2}
+                helperText={
+                  farm.location.length > 0 && farm.location.trim().length < 2
+                    ? 'Use at least 2 characters.'
+                    : undefined
+                }
                 fullWidth
               />
               <TextField

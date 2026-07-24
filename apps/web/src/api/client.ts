@@ -83,8 +83,25 @@ export class ApiClient {
     });
 
     if (!response.ok) {
-      const errorBody = (await response.json().catch(() => null)) as { message?: string } | null;
-      throw new Error(errorBody?.message ?? 'Request failed.');
+      const errorBody = (await response.json().catch(() => null)) as
+        | { message?: unknown; error?: string }
+        | null;
+
+      const rawMessage = errorBody?.message;
+      if (typeof rawMessage === 'string' && rawMessage.length > 0) {
+        throw new Error(rawMessage);
+      }
+
+      if (Array.isArray(rawMessage) && rawMessage.length > 0) {
+        const first = rawMessage[0];
+        throw new Error(typeof first === 'string' ? first : JSON.stringify(first));
+      }
+
+      if (rawMessage && typeof rawMessage === 'object') {
+        throw new Error(JSON.stringify(rawMessage));
+      }
+
+      throw new Error(errorBody?.error ?? 'Request failed.');
     }
 
     if (response.status === 204) {
