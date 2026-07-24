@@ -14,6 +14,7 @@ import {
   MenuItem,
   Paper,
   Stack,
+  Divider,
   Typography,
 } from '@mui/material';
 
@@ -32,14 +33,31 @@ export function DashboardShell({ onRestartSetup }: DashboardShellProps) {
   const [restartingSetup, setRestartingSetup] = useState(false);
 
   useEffect(() => {
-    void apiClient
-      .getDevices()
-      .then((response) => {
-        setDevices(response.devices);
-      })
-      .catch((error) => {
-        setErrorMessage(error instanceof Error ? error.message : 'Unable to load devices.');
-      });
+    let cancelled = false;
+
+    const loadDevices = async () => {
+      try {
+        const response = await apiClient.getDevices();
+        if (!cancelled) {
+          setDevices(response.devices);
+          setErrorMessage(null);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setErrorMessage(error instanceof Error ? error.message : 'Unable to load devices.');
+        }
+      }
+    };
+
+    void loadDevices();
+    const timerId = setInterval(() => {
+      void loadDevices();
+    }, 5000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(timerId);
+    };
   }, []);
 
   const onlineDevices = useMemo(
@@ -98,7 +116,7 @@ export function DashboardShell({ onRestartSetup }: DashboardShellProps) {
     void loadSnapshots();
     const timerId = setInterval(() => {
       void loadSnapshots();
-    }, 8000);
+    }, 5000);
 
     return () => {
       cancelled = true;
@@ -237,9 +255,9 @@ export function DashboardShell({ onRestartSetup }: DashboardShellProps) {
         <Grid container spacing={2}>
           {widgets.map((widget) => (
             <Grid size={{ xs: 12, md: 6, xl: 4 }} key={widget.title}>
-              <Paper sx={{ p: 3, minHeight: 180 }}>
-                <Stack spacing={2}>
-                  <Typography variant="h5">{widget.title}</Typography>
+              <Paper sx={{ p: 2.25, minHeight: 132 }}>
+                <Stack spacing={1.25}>
+                  <Typography variant="h6">{widget.title}</Typography>
                   <Typography variant="body1" color="text.secondary">
                     {widget.value}
                   </Typography>
@@ -293,34 +311,81 @@ export function DashboardShell({ onRestartSetup }: DashboardShellProps) {
                 {sensorDevices.length === 0 ? (
                   <Typography color="text.secondary">No sensor devices discovered yet.</Typography>
                 ) : (
-                  <Grid container spacing={2}>
+                  <Grid container spacing={1.5}>
                     {sensorDevices.map((sensor) => (
-                      <Grid size={{ xs: 12, md: 6, xl: 4 }} key={sensor.id}>
-                        <Paper variant="outlined" sx={{ p: 2 }}>
-                          <Stack spacing={1}>
-                            <Typography variant="subtitle1">{sensor.name}</Typography>
-                            <Typography color="text.secondary" variant="body2">
-                              State: {sensor.sensorState?.state ?? 'unknown'}
-                            </Typography>
-                            <Typography color="text.secondary" variant="body2">
-                              Battery:{' '}
-                              {sensor.sensorState?.batteryLevel !== null &&
-                              sensor.sensorState?.batteryLevel !== undefined
-                                ? `${sensor.sensorState.batteryLevel}%`
-                                : 'n/a'}
-                            </Typography>
-                            <Typography color="text.secondary" variant="body2">
-                              Signal:{' '}
-                              {sensor.sensorState?.signalLevel !== null &&
-                              sensor.sensorState?.signalLevel !== undefined
-                                ? `${sensor.sensorState.signalLevel}`
-                                : 'n/a'}
-                            </Typography>
-                            {sensor.sensorState?.metrics?.map((metric) => (
-                              <Typography color="text.secondary" variant="body2" key={`${sensor.id}-${metric.label}`}>
-                                {metric.label}: {metric.value}
+                      <Grid size={{ xs: 12, sm: 6, lg: 4, xl: 3 }} key={sensor.id}>
+                        <Paper variant="outlined" sx={{ p: 1.5, minHeight: 184 }}>
+                          <Stack spacing={1.25}>
+                            <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={1}>
+                              <div>
+                                <Typography variant="subtitle2" sx={{ fontSize: '1rem', fontWeight: 700 }}>
+                                  {sensor.name}
+                                </Typography>
+                                <Typography color="text.secondary" variant="caption">
+                                  {sensor.sensorState?.state ?? 'unknown'}
+                                </Typography>
+                              </div>
+                              <Chip
+                                size="small"
+                                color={sensor.isOnline ? 'success' : 'default'}
+                                label={sensor.isOnline ? 'Live' : 'Offline'}
+                              />
+                            </Stack>
+
+                            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                              <Chip
+                                size="small"
+                                variant="outlined"
+                                label={
+                                  sensor.sensorState?.batteryLevel !== null &&
+                                  sensor.sensorState?.batteryLevel !== undefined
+                                    ? `Battery ${sensor.sensorState.batteryLevel}%`
+                                    : 'Battery n/a'
+                                }
+                              />
+                              <Chip
+                                size="small"
+                                variant="outlined"
+                                label={
+                                  sensor.sensorState?.signalLevel !== null &&
+                                  sensor.sensorState?.signalLevel !== undefined
+                                    ? `Signal ${sensor.sensorState.signalLevel}`
+                                    : 'Signal n/a'
+                                }
+                              />
+                            </Stack>
+
+                            <Divider flexItem />
+
+                            {sensor.sensorState?.metrics && sensor.sensorState.metrics.length > 0 ? (
+                              <Grid container spacing={1}>
+                                {sensor.sensorState.metrics.slice(0, 6).map((metric) => (
+                                  <Grid size={{ xs: 6 }} key={`${sensor.id}-${metric.label}`}>
+                                    <Box
+                                      sx={{
+                                        border: '1px solid',
+                                        borderColor: 'divider',
+                                        borderRadius: 2,
+                                        px: 1,
+                                        py: 0.75,
+                                        backgroundColor: 'rgba(255,255,255,0.03)',
+                                      }}
+                                    >
+                                      <Typography variant="caption" color="text.secondary" display="block">
+                                        {metric.label}
+                                      </Typography>
+                                      <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                                        {metric.value}
+                                      </Typography>
+                                    </Box>
+                                  </Grid>
+                                ))}
+                              </Grid>
+                            ) : (
+                              <Typography color="text.secondary" variant="body2">
+                                Waiting for richer Protect sensor telemetry from this device model.
                               </Typography>
-                            ))}
+                            )}
                           </Stack>
                         </Paper>
                       </Grid>
