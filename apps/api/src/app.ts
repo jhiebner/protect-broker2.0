@@ -1,6 +1,5 @@
 import fastifyCors from '@fastify/cors';
 import fastifyJwt from '@fastify/jwt';
-import fastifySensible from '@fastify/sensible';
 import Fastify from 'fastify';
 
 import { config } from './lib/config.js';
@@ -23,7 +22,6 @@ export async function createApp() {
     origin: true,
     credentials: true,
   });
-  await app.register(fastifySensible);
   await app.register(fastifyJwt, {
     secret: instanceSecret.toString('base64url'),
   });
