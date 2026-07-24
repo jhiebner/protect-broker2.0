@@ -32,6 +32,26 @@ const setupSteps = [
   'Finish',
 ] as const;
 
+const DISCOVERY_TIMEOUT_MS = 45000;
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutMessage: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timeoutId = setTimeout(() => {
+      reject(new Error(timeoutMessage));
+    }, timeoutMs);
+
+    promise
+      .then((result) => {
+        clearTimeout(timeoutId);
+        resolve(result);
+      })
+      .catch((error) => {
+        clearTimeout(timeoutId);
+        reject(error);
+      });
+  });
+}
+
 interface SetupWizardProps {
   bootstrapState: BootstrapState;
   onCreateAdministrator: (payload: SetupAdminInput) => Promise<void>;
@@ -133,11 +153,16 @@ export function SetupWizard({
 
   const runDiscoveryStep = async () => {
     setBusy(true);
+    setDiscoveryFailed(false);
     setSeverity('info');
     setMessage('Discovering Protect devices...');
 
     try {
-      const result = await onDiscoverDevices();
+      const result = await withTimeout(
+        onDiscoverDevices(),
+        DISCOVERY_TIMEOUT_MS,
+        'Device discovery timed out. Check Protect connectivity and retry.',
+      );
       setDiscoveryFailed(false);
       setSeverity('success');
       setMessage(`Discovery complete. Found ${result.discovered} devices and saved ${result.saved}.`);
@@ -436,11 +461,6 @@ export function SetupWizard({
                 <Typography color="text.secondary">
                   Protect Broker is discovering devices from your Protect console.
                 </Typography>
-                <Alert severity={discoveryFailed ? 'error' : 'info'}>
-                  {discoveryFailed
-                    ? 'Discovery failed. Press Continue to retry.'
-                    : 'Discovery runs automatically when this step opens.'}
-                </Alert>
               </Stack>
             </Paper>
           ) : null}
