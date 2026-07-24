@@ -16,7 +16,6 @@ import {
   Stack,
   Typography,
 } from '@mui/material';
-import MoreVertIcon from '@mui/icons-material/MoreVert';
 
 import { apiClient, type ApiDevice } from '../../api/client.js';
 
@@ -113,7 +112,6 @@ export function DashboardShell({ onRestartSetup }: DashboardShellProps) {
               <Button
                 variant="outlined"
                 color="inherit"
-                startIcon={<MoreVertIcon />}
                 aria-controls={menuOpen ? 'dashboard-menu' : undefined}
                 aria-haspopup="true"
                 aria-expanded={menuOpen ? 'true' : undefined}
