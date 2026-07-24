@@ -1,0 +1,24 @@
+[Unit]
+Description=Protect Broker Appliance Service
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=protect-broker
+Group=protect-broker
+WorkingDirectory=/opt/protect-broker/current
+EnvironmentFile=/etc/protect-broker/protect-broker.env
+ExecStart=/usr/bin/npm run start
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+KillSignal=SIGTERM
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/var/lib/protect-broker
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

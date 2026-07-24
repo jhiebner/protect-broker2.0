@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2022", "DOM"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "exactOptionalPropertyTypes": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "declaration": true,
+    "sourceMap": true,
+    "ignoreDeprecations": "6.0",
+    "baseUrl": ".",
+    "paths": {
+      "@protect-broker/shared": ["packages/shared/src/index.ts"],
+      "@protect-broker/database": ["packages/database/src/index.ts"],
+      "@protect-broker/broker-core": ["packages/broker-core/src/index.ts"],
+      "@protect-broker/protect-client": ["packages/protect-client/src/index.ts"],
+      "@protect-broker/ui": ["packages/ui/src/index.ts"]
+    }
+  }
+}

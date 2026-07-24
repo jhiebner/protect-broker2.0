@@ -1,0 +1,156 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMINISTRATOR
+  MANAGER
+  OPERATOR
+  VIEWER
+}
+
+enum DeviceKind {
+  HUB
+  SENSOR
+  RELAY
+  CAMERA
+  LOCK
+  LIGHT
+  OTHER
+}
+
+enum EventSeverity {
+  INFO
+  WARN
+  ERROR
+  CRITICAL
+}
+
+enum NotificationChannel {
+  SMTP
+  SMS
+  WEBHOOK
+  IN_APP
+}
+
+model User {
+  id           String     @id @default(cuid())
+  username     String     @unique
+  passwordHash String
+  role         UserRole   @default(ADMINISTRATOR)
+  isActive     Boolean    @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  auditLogs    AuditLog[]
+}
+
+model Zone {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  zoneType    String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  devices     Device[]
+}
+
+model Device {
+  id             String    @id @default(cuid())
+  provider       String
+  externalId     String
+  name           String
+  kind           DeviceKind
+  isEnabled      Boolean   @default(true)
+  isOnline       Boolean   @default(false)
+  lastSeenAt     DateTime?
+  metadata       Json?
+  zoneId         String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  zone           Zone?     @relation(fields: [zoneId], references: [id])
+  sensors        Sensor[]
+  relays         Relay[]
+
+  @@unique([provider, externalId])
+}
+
+model Sensor {
+  id            String   @id @default(cuid())
+  deviceId      String
+  sensorType    String
+  state         String
+  batteryLevel  Int?
+  signalLevel   Int?
+  lastUpdatedAt DateTime @default(now())
+  metadata      Json?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  device        Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+}
+
+model Relay {
+  id              String   @id @default(cuid())
+  deviceId        String
+  state           String   @default("off")
+  pulseDurationMs Int?     @default(1000)
+  confirmation    Boolean  @default(false)
+  safetyLock      Boolean  @default(false)
+  metadata        Json?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  device          Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+}
+
+model Rule {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  isEnabled   Boolean  @default(true)
+  definition  Json
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model EventLog {
+  id         String        @id @default(cuid())
+  source     String
+  entityType String
+  entityId   String?
+  eventType  String
+  severity   EventSeverity @default(INFO)
+  payload    Json?
+  createdAt  DateTime      @default(now())
+}
+
+model Notification {
+  id         String              @id @default(cuid())
+  name       String
+  channel    NotificationChannel
+  isEnabled  Boolean             @default(true)
+  config     Json?
+  createdAt  DateTime            @default(now())
+  updatedAt  DateTime            @updatedAt
+}
+
+model Setting {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  action    String
+  payload   Json?
+  createdAt DateTime @default(now())
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+}

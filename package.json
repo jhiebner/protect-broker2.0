@@ -1,0 +1,25 @@
+{
+  "name": "protect-broker",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Protect Broker monorepo",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n api,web -c cyan,yellow \"npm run dev -w @protect-broker/api\" \"npm run dev -w @protect-broker/web\"",
+    "build": "npm run build -w @protect-broker/shared && npm run build -w @protect-broker/ui && npm run build -w @protect-broker/broker-core && npm run build -w @protect-broker/protect-client && npm run prisma:generate -w @protect-broker/database && npm run build -w @protect-broker/database && npm run build -w @protect-broker/api && npm run build -w @protect-broker/web",
+    "start": "npm run start -w @protect-broker/api",
+    "typecheck": "npm run typecheck -w @protect-broker/shared && npm run typecheck -w @protect-broker/ui && npm run typecheck -w @protect-broker/broker-core && npm run typecheck -w @protect-broker/protect-client && npm run typecheck -w @protect-broker/database && npm run typecheck -w @protect-broker/api && npm run typecheck -w @protect-broker/web",
+    "test": "npm run test -w @protect-broker/shared && npm run test -w @protect-broker/broker-core",
+    "db:migrate": "npm run prisma:migrate -w @protect-broker/database"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.1",
+    "typescript": "^5.8.2"
+  }
+}
