@@ -6,6 +6,7 @@ import {
   protectConnectionSchema,
   setupAdminSchema,
 } from '@protect-broker/shared';
+import { ZodError } from 'zod';
 
 import type { AppContainer } from '../container.js';
 
@@ -17,6 +18,16 @@ export async function registerSetupRoutes(app: FastifyInstance, container: AppCo
       return reply.code(201).send({ success: true });
     } catch (error) {
       request.log.error({ error }, 'Failed to create administrator.');
+
+      if (error instanceof ZodError) {
+        const message = error.issues[0]?.message ?? 'Invalid administrator setup values.';
+        return reply.code(400).send({ message });
+      }
+
+      if (error instanceof Error) {
+        return reply.code(400).send({ message: error.message });
+      }
+
       return reply.code(400).send({ message: 'Unable to create administrator.' });
     }
   });

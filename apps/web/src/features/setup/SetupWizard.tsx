@@ -80,8 +80,28 @@ export function SetupWizard({
   });
 
   const progressValue = useMemo(() => ((activeStep + 1) / setupSteps.length) * 100, [activeStep]);
+  const showPasswordMismatch =
+    activeStep === 0 && admin.confirmPassword.length > 0 && admin.password !== admin.confirmPassword;
+  const adminStepValid =
+    admin.username.trim().length >= 3 &&
+    admin.password.length >= 12 &&
+    admin.confirmPassword.length >= 12 &&
+    admin.password === admin.confirmPassword;
+  const disableContinue = busy || (activeStep === 0 && !adminStepValid);
 
   const runStep = async () => {
+    if (activeStep === 0 && admin.password !== admin.confirmPassword) {
+      setSeverity('error');
+      setMessage('Passwords must match.');
+      return;
+    }
+
+    if (activeStep === 0 && admin.password.length < 12) {
+      setSeverity('error');
+      setMessage('Administrator password must be at least 12 characters.');
+      return;
+    }
+
     setBusy(true);
     setMessage(null);
 
@@ -177,6 +197,12 @@ export function SetupWizard({
                 type="password"
                 value={admin.password}
                 onChange={(event) => setAdmin((current) => ({ ...current, password: event.target.value }))}
+                error={admin.password.length > 0 && admin.password.length < 12}
+                helperText={
+                  admin.password.length > 0 && admin.password.length < 12
+                    ? 'Use at least 12 characters.'
+                    : undefined
+                }
                 fullWidth
               />
               <TextField
@@ -186,6 +212,8 @@ export function SetupWizard({
                 onChange={(event) =>
                   setAdmin((current) => ({ ...current, confirmPassword: event.target.value }))
                 }
+                error={showPasswordMismatch}
+                helperText={showPasswordMismatch ? 'Passwords must match.' : undefined}
                 fullWidth
               />
             </Stack>
@@ -345,7 +373,7 @@ export function SetupWizard({
             >
               Back
             </Button>
-            <Button variant="contained" disabled={busy} onClick={() => void runStep()}>
+            <Button variant="contained" disabled={disableContinue} onClick={() => void runStep()}>
               {activeStep === setupSteps.length - 1 ? 'Finish Setup' : 'Continue'}
             </Button>
           </Stack>
