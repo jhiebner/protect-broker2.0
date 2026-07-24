@@ -26,6 +26,14 @@ export interface ApiDevice {
   lastSeenAt: string | null;
 }
 
+export interface DiscoverySummary {
+  discovered: number;
+  saved: number;
+  online: number;
+  offline: number;
+  byKind: Record<string, number>;
+}
+
 export class ApiClient {
   private authToken: string | null = null;
 
@@ -85,7 +93,7 @@ export class ApiClient {
     });
   }
 
-  async discoverDevices(): Promise<{ discovered: number; saved: number }> {
+  async discoverDevices(): Promise<DiscoverySummary> {
     return this.request('/api/setup/discovery', {
       method: 'POST',
     });

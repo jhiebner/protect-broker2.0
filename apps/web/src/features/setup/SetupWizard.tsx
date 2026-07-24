@@ -23,6 +23,8 @@ import type {
   SetupAdminInput,
 } from '@protect-broker/shared';
 
+import type { DiscoverySummary } from '../../api/client.js';
+
 const setupSteps = [
   'Administrator',
   'UniFi Protect',
@@ -61,7 +63,7 @@ interface SetupWizardProps {
   onSaveProtectConnection: (payload: ProtectConnectionInput) => Promise<void>;
   onSaveFarmProfile: (payload: FarmProfileInput) => Promise<void>;
   onSaveDashboardPreferences: (payload: DashboardPreferencesInput) => Promise<void>;
-  onDiscoverDevices: () => Promise<{ discovered: number; saved: number }>;
+  onDiscoverDevices: () => Promise<DiscoverySummary>;
   onFinish: (credentials?: { username: string; password: string }) => Promise<void>;
 }
 
@@ -102,6 +104,7 @@ export function SetupWizard({
   const [createdAdministratorInWizard, setCreatedAdministratorInWizard] = useState(false);
   const [discoveryAttempted, setDiscoveryAttempted] = useState(false);
   const [discoveryFailed, setDiscoveryFailed] = useState(false);
+  const [discoveryResult, setDiscoveryResult] = useState<DiscoverySummary | null>(null);
 
   const [admin, setAdmin] = useState<SetupAdminInput>({
     username: '',
@@ -145,7 +148,7 @@ export function SetupWizard({
     busy ||
     (activeStep === 0 && requiresAdminCreation && !adminStepValid) ||
     (activeStep === 2 && !farmStepValid) ||
-    (activeStep === 3 && !discoveryFailed);
+    (activeStep === 3 && !discoveryFailed && !discoveryResult);
 
   useEffect(() => {
     setMessage(null);
@@ -154,6 +157,7 @@ export function SetupWizard({
   const runDiscoveryStep = async () => {
     setBusy(true);
     setDiscoveryFailed(false);
+    setDiscoveryResult(null);
     setSeverity('info');
     setMessage('Discovering Protect devices...');
 
@@ -164,11 +168,12 @@ export function SetupWizard({
         'Device discovery timed out. Check Protect connectivity and retry.',
       );
       setDiscoveryFailed(false);
+      setDiscoveryResult(result);
       setSeverity('success');
       setMessage(`Discovery complete. Found ${result.discovered} devices and saved ${result.saved}.`);
-      setActiveStep(4);
     } catch (error) {
       setDiscoveryFailed(true);
+      setDiscoveryResult(null);
       setSeverity('error');
       setMessage(error instanceof Error ? error.message : 'Unable to discover devices.');
     } finally {
@@ -233,8 +238,10 @@ export function SetupWizard({
       }
 
       if (activeStep === 3) {
-        await runDiscoveryStep();
-        return;
+        if (discoveryFailed || !discoveryResult) {
+          await runDiscoveryStep();
+          return;
+        }
       }
 
       if (activeStep === 4) {
@@ -461,6 +468,19 @@ export function SetupWizard({
                 <Typography color="text.secondary">
                   Protect Broker is discovering devices from your Protect console.
                 </Typography>
+                {discoveryResult ? (
+                  <Stack spacing={1}>
+                    <Alert severity="success">
+                      {`Discovered ${discoveryResult.discovered} devices (${discoveryResult.online} online, ${discoveryResult.offline} offline).`}
+                    </Alert>
+                    <Typography color="text.secondary" variant="body2">
+                      {Object.entries(discoveryResult.byKind)
+                        .sort((a, b) => b[1] - a[1])
+                        .map(([kind, count]) => `${kind.toLowerCase()}: ${count}`)
+                        .join(' | ') || 'No categorized devices returned.'}
+                    </Typography>
+                  </Stack>
+                ) : null}
               </Stack>
             </Paper>
           ) : null}

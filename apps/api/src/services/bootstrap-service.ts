@@ -111,7 +111,13 @@ export class BootstrapService {
     await this.writeSetting(SETTING_KEYS.dashboard, payload);
   }
 
-  async discoverProtectDevices(): Promise<{ discovered: number; saved: number }> {
+  async discoverProtectDevices(): Promise<{
+    discovered: number;
+    saved: number;
+    online: number;
+    offline: number;
+    byKind: Partial<Record<DeviceKind, number>>;
+  }> {
     const protectSettings = await this.readSetting<{
       host: string;
       port: number;
@@ -133,8 +139,12 @@ export class BootstrapService {
     });
 
     let saved = 0;
+    let online = 0;
+    const byKind: Partial<Record<DeviceKind, number>> = {};
 
     for (const device of discoveredDevices) {
+      const kind = mapProtectCategoryToDeviceKind(device.category);
+
       await this.deps.prisma.device.upsert({
         where: {
           provider_externalId: {
@@ -144,7 +154,7 @@ export class BootstrapService {
         },
         update: {
           name: device.name,
-          kind: mapProtectCategoryToDeviceKind(device.category),
+          kind,
           isOnline: device.isOnline,
           metadata: device.metadata as Prisma.InputJsonValue,
           lastSeenAt: new Date(),
@@ -153,7 +163,7 @@ export class BootstrapService {
           provider: 'unifi-protect',
           externalId: device.externalId,
           name: device.name,
-          kind: mapProtectCategoryToDeviceKind(device.category),
+          kind,
           isOnline: device.isOnline,
           metadata: device.metadata as Prisma.InputJsonValue,
           lastSeenAt: new Date(),
@@ -161,6 +171,10 @@ export class BootstrapService {
       });
 
       saved += 1;
+      if (device.isOnline) {
+        online += 1;
+      }
+      byKind[kind] = (byKind[kind] ?? 0) + 1;
     }
 
     this.deps.eventBus.emit('protect.connection', {
@@ -172,6 +186,9 @@ export class BootstrapService {
     return {
       discovered: discoveredDevices.length,
       saved,
+      online,
+      offline: Math.max(discoveredDevices.length - online, 0),
+      byKind,
     };
   }
 
