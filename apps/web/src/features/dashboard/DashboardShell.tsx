@@ -2,18 +2,34 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Box,
+  Button,
   Chip,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogContentText,
+  DialogTitle,
   Grid2 as Grid,
+  Menu,
+  MenuItem,
   Paper,
   Stack,
   Typography,
 } from '@mui/material';
+import MoreVertIcon from '@mui/icons-material/MoreVert';
 
 import { apiClient, type ApiDevice } from '../../api/client.js';
 
-export function DashboardShell() {
+interface DashboardShellProps {
+  onRestartSetup: () => Promise<void>;
+}
+
+export function DashboardShell({ onRestartSetup }: DashboardShellProps) {
   const [devices, setDevices] = useState<ApiDevice[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
+  const [restartDialogOpen, setRestartDialogOpen] = useState(false);
+  const [restartingSetup, setRestartingSetup] = useState(false);
 
   useEffect(() => {
     void apiClient
@@ -63,6 +79,22 @@ export function DashboardShell() {
     },
   ];
 
+  const menuOpen = Boolean(menuAnchor);
+
+  const handleRestartSetup = async () => {
+    setRestartingSetup(true);
+    setErrorMessage(null);
+
+    try {
+      await onRestartSetup();
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Unable to restart setup.');
+    } finally {
+      setRestartingSetup(false);
+      setRestartDialogOpen(false);
+    }
+  };
+
   return (
     <Box sx={{ minHeight: '100vh', p: { xs: 2, md: 3 } }}>
       <Stack spacing={3}>
@@ -78,9 +110,74 @@ export function DashboardShell() {
               <Chip color="success" label="Broker Online" />
               <Chip color="warning" label="Protect Pending" />
               <Chip label="SCADA Layout Shell" />
+              <Button
+                variant="outlined"
+                color="inherit"
+                startIcon={<MoreVertIcon />}
+                aria-controls={menuOpen ? 'dashboard-menu' : undefined}
+                aria-haspopup="true"
+                aria-expanded={menuOpen ? 'true' : undefined}
+                onClick={(event) => setMenuAnchor(event.currentTarget)}
+                sx={{
+                  minHeight: 36,
+                  borderColor: 'divider',
+                  color: 'text.primary',
+                  backgroundColor: 'rgba(255, 255, 255, 0.04)',
+                }}
+              >
+                Menu
+              </Button>
             </Stack>
           </Stack>
         </Paper>
+
+        <Menu
+          id="dashboard-menu"
+          anchorEl={menuAnchor}
+          open={menuOpen}
+          onClose={() => setMenuAnchor(null)}
+        >
+          <MenuItem
+            onClick={() => {
+              setMenuAnchor(null);
+              setRestartDialogOpen(true);
+            }}
+          >
+            Restart Setup
+          </MenuItem>
+        </Menu>
+
+        <Dialog
+          open={restartDialogOpen}
+          onClose={() => {
+            if (!restartingSetup) {
+              setRestartDialogOpen(false);
+            }
+          }}
+        >
+          <DialogTitle>Restart setup wizard?</DialogTitle>
+          <DialogContent>
+            <DialogContentText>
+              This returns the app to commissioning mode so you can rerun setup steps.
+            </DialogContentText>
+          </DialogContent>
+          <DialogActions>
+            <Button
+              onClick={() => setRestartDialogOpen(false)}
+              disabled={restartingSetup}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="contained"
+              color="warning"
+              onClick={() => void handleRestartSetup()}
+              disabled={restartingSetup}
+            >
+              {restartingSetup ? 'Restarting…' : 'Restart Setup'}
+            </Button>
+          </DialogActions>
+        </Dialog>
 
         {errorMessage ? <Alert severity="warning">{errorMessage}</Alert> : null}
 

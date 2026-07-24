@@ -194,6 +194,18 @@ export class BootstrapService {
     });
   }
 
+  async restartSetup(): Promise<void> {
+    await this.writeSetting(SETTING_KEYS.systemSetup, {
+      restartedAt: new Date().toISOString(),
+      setupComplete: false,
+    });
+
+    this.deps.eventBus.emit('bootstrap.updated', {
+      setupComplete: false,
+      at: new Date().toISOString(),
+    });
+  }
+
   async authenticate(input: LoginRequest) {
     const payload = loginRequestSchema.parse(input);
     const user = await this.deps.prisma.user.findUnique({

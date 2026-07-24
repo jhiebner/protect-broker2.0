@@ -110,4 +110,15 @@ export async function registerSetupRoutes(app: FastifyInstance, container: AppCo
       return sendSetupError(reply, error, 'Unable to finish setup.');
     }
   });
+
+  app.post('/api/setup/restart', async (request, reply) => {
+    try {
+      await request.jwtVerify();
+      await container.bootstrapService.restartSetup();
+      return reply.code(200).send({ success: true });
+    } catch (error) {
+      request.log.error({ error }, 'Failed to restart setup.');
+      return sendSetupError(reply, error, 'Unable to restart setup.');
+    }
+  });
 }

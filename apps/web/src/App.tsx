@@ -14,6 +14,7 @@ export function App() {
   const [bootstrapState, setBootstrapState] = useState<BootstrapState | null>(null);
   const [token, setToken] = useState<string | null>(() => localStorage.getItem(AUTH_STORAGE_KEY));
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [authReady, setAuthReady] = useState(false);
 
   useEffect(() => {
     void apiClient
@@ -24,6 +25,44 @@ export function App() {
       });
   }, []);
 
+  useEffect(() => {
+    apiClient.setAuthToken(token);
+  }, [token]);
+
+  useEffect(() => {
+    if (!bootstrapState) {
+      return;
+    }
+
+    if (!bootstrapState.setupComplete || !token) {
+      setAuthReady(true);
+      return;
+    }
+
+    let isCancelled = false;
+    setAuthReady(false);
+
+    void apiClient
+      .getCurrentUser()
+      .catch(() => {
+        if (isCancelled) {
+          return;
+        }
+
+        localStorage.removeItem(AUTH_STORAGE_KEY);
+        setToken(null);
+      })
+      .finally(() => {
+        if (!isCancelled) {
+          setAuthReady(true);
+        }
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [bootstrapState, token]);
+
   const refreshBootstrap = async () => {
     const nextState = await apiClient.getBootstrapState();
     setBootstrapState(nextState);
@@ -32,6 +71,7 @@ export function App() {
   const login = async (credentials: { username: string; password: string }) => {
     const response = await apiClient.login(credentials);
     localStorage.setItem(AUTH_STORAGE_KEY, response.token);
+    apiClient.setAuthToken(response.token);
     setToken(response.token);
   };
 
@@ -49,6 +89,17 @@ export function App() {
         <Stack spacing={2} alignItems="center">
           <CircularProgress color="primary" />
           <Alert severity="info">Starting Protect Broker…</Alert>
+        </Stack>
+      </Box>
+    );
+  }
+
+  if (bootstrapState.setupComplete && !authReady) {
+    return (
+      <Box display="grid" minHeight="100vh" sx={{ placeItems: 'center' }}>
+        <Stack spacing={2} alignItems="center">
+          <CircularProgress color="primary" />
+          <Alert severity="info">Verifying operator session…</Alert>
         </Stack>
       </Box>
     );
@@ -82,5 +133,15 @@ export function App() {
     return <LoginView onSubmit={login} />;
   }
 
-  return <DashboardShell />;
+  return (
+    <DashboardShell
+      onRestartSetup={async () => {
+        await apiClient.restartSetup();
+        localStorage.removeItem(AUTH_STORAGE_KEY);
+        apiClient.setAuthToken(null);
+        setToken(null);
+        await refreshBootstrap();
+      }}
+    />
+  );
 }

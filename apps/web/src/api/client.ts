@@ -27,7 +27,13 @@ export interface ApiDevice {
 }
 
 export class ApiClient {
+  private authToken: string | null = null;
+
   constructor(private readonly baseUrl = '') {}
+
+  setAuthToken(token: string | null): void {
+    this.authToken = token;
+  }
 
   async getBootstrapState(): Promise<BootstrapState> {
     return this.request<BootstrapState>('/api/bootstrap');
@@ -38,6 +44,10 @@ export class ApiClient {
       method: 'POST',
       body: JSON.stringify(payload),
     });
+  }
+
+  async getCurrentUser(): Promise<{ user: { sub: string; role: string; username: string } }> {
+    return this.request('/api/auth/me');
   }
 
   async createAdministrator(payload: SetupAdminInput): Promise<void> {
@@ -91,12 +101,20 @@ export class ApiClient {
     });
   }
 
+  async restartSetup(): Promise<void> {
+    await this.request('/api/setup/restart', {
+      method: 'POST',
+    });
+  }
+
   private async request<T>(path: string, init?: RequestInit): Promise<T> {
     const hasBody = typeof init?.body === 'string' ? init.body.length > 0 : init?.body !== undefined;
+    const authHeader = this.authToken ? { Authorization: `Bearer ${this.authToken}` } : {};
 
     const response = await fetch(`${this.baseUrl}${path}`, {
       headers: {
         ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
+        ...authHeader,
         ...(init?.headers ?? {}),
       },
       ...init,

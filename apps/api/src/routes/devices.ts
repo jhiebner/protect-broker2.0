@@ -3,7 +3,9 @@ import type { FastifyInstance } from 'fastify';
 import type { AppContainer } from '../container.js';
 
 export async function registerDeviceRoutes(app: FastifyInstance, container: AppContainer): Promise<void> {
-  app.get('/api/devices', async () => {
+  app.get('/api/devices', async (request) => {
+    await request.jwtVerify();
+
     const devices = await container.prisma.device.findMany({
       orderBy: {
         name: 'asc',
