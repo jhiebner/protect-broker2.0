@@ -147,6 +147,8 @@ generate_password() {
 }
 
 setup_local_postgres() {
+	local role_exists
+
 	if [[ -n "${EXTERNAL_DB_URL}" ]]; then
 		return
 	fi
@@ -156,9 +158,14 @@ setup_local_postgres() {
 	systemctl restart postgresql
 
 	DB_PASSWORD="$(generate_password)"
+	role_exists="$(su - postgres -s /bin/sh -c "psql -tAc \"SELECT 1 FROM pg_roles WHERE rolname='${DB_USER}'\"" | tr -d '[:space:]')"
 
-	su - postgres -s /bin/sh -c "psql -tAc \"SELECT 1 FROM pg_roles WHERE rolname='${DB_USER}'\"" | grep -q 1 || \
+	if [[ "${role_exists}" == "1" ]]; then
+		log "PostgreSQL role ${DB_USER} exists; resetting password for installer-managed credentials."
+		su - postgres -s /bin/sh -c "psql -c \"ALTER ROLE ${DB_USER} WITH LOGIN PASSWORD '${DB_PASSWORD}';\""
+	else
 		su - postgres -s /bin/sh -c "psql -c \"CREATE ROLE ${DB_USER} LOGIN PASSWORD '${DB_PASSWORD}';\""
+	fi
 
 	su - postgres -s /bin/sh -c "psql -tAc \"SELECT 1 FROM pg_database WHERE datname='${DB_NAME}'\"" | grep -q 1 || \
 		su - postgres -s /bin/sh -c "createdb --owner=${DB_USER} ${DB_NAME}"
