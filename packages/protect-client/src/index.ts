@@ -10,6 +10,12 @@ interface HttpResult {
   headers: Record<string, string | string[] | undefined>;
 }
 
+interface HttpBufferResult {
+  statusCode: number;
+  body: Buffer;
+  headers: Record<string, string | string[] | undefined>;
+}
+
 interface ProtectSession {
   baseUrl: string;
   cookieHeader: string;
@@ -28,6 +34,10 @@ export interface DiscoveredProtectDevice {
 export interface ProtectClient extends DeviceProvider {
   testConnection(settings: ProtectConnectionInput): Promise<{ ok: boolean; message?: string }>;
   discoverDevices(settings: ProtectConnectionInput): Promise<DiscoveredProtectDevice[]>;
+  getCameraSnapshot(
+    settings: ProtectConnectionInput,
+    cameraExternalId: string,
+  ): Promise<{ contentType: string; imageBytes: Buffer }>;
 }
 
 function buildBaseUrl(settings: ProtectConnectionInput): string {
@@ -106,6 +116,49 @@ export class UnifiProtectClient implements ProtectClient {
 
     const payload = JSON.parse(bootstrapResponse.body) as Record<string, unknown>;
     return normalizeDevicesFromBootstrap(payload);
+  }
+
+  async getCameraSnapshot(
+    settings: ProtectConnectionInput,
+    cameraExternalId: string,
+  ): Promise<{ contentType: string; imageBytes: Buffer }> {
+    const session = await this.authenticate(settings);
+    this.session = session;
+
+    const candidatePaths = [
+      `/proxy/protect/api/cameras/${cameraExternalId}/snapshot`,
+      `/api/cameras/${cameraExternalId}/snapshot`,
+    ];
+
+    for (const path of candidatePaths) {
+      const response = await this.httpRequestBuffer({
+        method: 'GET',
+        url: `${session.baseUrl}${path}`,
+        allowSelfSignedCertificate: settings.allowSelfSignedCertificate,
+        headers: {
+          Cookie: session.cookieHeader,
+          Accept: 'image/*,*/*;q=0.8',
+        },
+      });
+
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        const rawContentType = response.headers['content-type'];
+        const contentType = Array.isArray(rawContentType)
+          ? rawContentType[0] ?? 'image/jpeg'
+          : rawContentType ?? 'image/jpeg';
+
+        return {
+          contentType,
+          imageBytes: response.body,
+        };
+      }
+
+      if (response.statusCode === 401 || response.statusCode === 403) {
+        throw new Error('Protect camera snapshot request was unauthorized.');
+      }
+    }
+
+    throw new Error('Unable to retrieve camera snapshot from Protect.');
   }
 
   async connect(): Promise<void> {
@@ -207,6 +260,66 @@ export class UnifiProtectClient implements ProtectClient {
             resolve({
               statusCode: response.statusCode ?? 0,
               body: Buffer.concat(chunks).toString('utf8'),
+              headers: response.headers,
+            });
+          });
+        },
+      );
+
+      request.on('error', (error) => {
+        reject(error);
+      });
+
+      request.setTimeout(10000, () => {
+        request.destroy(new Error('Connection timed out after 10 seconds.'));
+      });
+
+      if (bodyString) {
+        request.write(bodyString);
+      }
+
+      request.end();
+    });
+  }
+
+  private async httpRequestBuffer(args: {
+    method: 'GET' | 'POST';
+    url: string;
+    allowSelfSignedCertificate: boolean;
+    body?: Record<string, unknown>;
+    headers?: Record<string, string>;
+  }): Promise<HttpBufferResult> {
+    const bodyString = args.body ? JSON.stringify(args.body) : undefined;
+
+    return new Promise((resolve, reject) => {
+      const request = httpsRequest(
+        args.url,
+        {
+          method: args.method,
+          headers: {
+            ...(bodyString
+              ? {
+                  'Content-Type': 'application/json',
+                  'Content-Length': Buffer.byteLength(bodyString).toString(),
+                }
+              : {}),
+            ...(args.headers ?? {}),
+          },
+          agent: new HttpsAgent({
+            rejectUnauthorized: !args.allowSelfSignedCertificate,
+          }),
+        },
+        (response) => {
+          const chunks: Buffer[] = [];
+
+          response.on('data', (chunk) => {
+            chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+          });
+
+          response.on('end', () => {
+            resolve({
+              statusCode: response.statusCode ?? 0,
+              body: Buffer.concat(chunks),
               headers: response.headers,
             });
           });

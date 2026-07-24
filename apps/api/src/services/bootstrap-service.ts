@@ -34,6 +34,14 @@ interface BootstrapServiceDependencies {
   instanceSecret: Buffer;
 }
 
+interface StoredProtectConnection {
+  host: string;
+  port: number;
+  username: string;
+  encryptedPassword: string;
+  allowSelfSignedCertificate?: boolean;
+}
+
 export class BootstrapService {
   constructor(private readonly deps: BootstrapServiceDependencies) {}
 
@@ -118,13 +126,7 @@ export class BootstrapService {
     offline: number;
     byKind: Partial<Record<DeviceKind, number>>;
   }> {
-    const protectSettings = await this.readSetting<{
-      host: string;
-      port: number;
-      username: string;
-      encryptedPassword: string;
-      allowSelfSignedCertificate?: boolean;
-    }>(SETTING_KEYS.protect);
+    const protectSettings = await this.readSetting<StoredProtectConnection>(SETTING_KEYS.protect);
 
     if (!protectSettings) {
       throw new Error('Protect connection must be configured before discovery can run.');
@@ -189,6 +191,22 @@ export class BootstrapService {
       online,
       offline: Math.max(discoveredDevices.length - online, 0),
       byKind,
+    };
+  }
+
+  async getProtectConnectionInput(): Promise<ProtectConnectionInput> {
+    const protectSettings = await this.readSetting<StoredProtectConnection>(SETTING_KEYS.protect);
+
+    if (!protectSettings) {
+      throw new Error('Protect connection must be configured before requesting live device data.');
+    }
+
+    return {
+      host: protectSettings.host,
+      port: protectSettings.port,
+      username: protectSettings.username,
+      password: decryptString(protectSettings.encryptedPassword, this.deps.instanceSecret),
+      allowSelfSignedCertificate: protectSettings.allowSelfSignedCertificate ?? true,
     };
   }
 

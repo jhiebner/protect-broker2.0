@@ -26,6 +26,7 @@ interface DashboardShellProps {
 export function DashboardShell({ onRestartSetup }: DashboardShellProps) {
   const [devices, setDevices] = useState<ApiDevice[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [cameraSnapshots, setCameraSnapshots] = useState<Record<string, string>>({});
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
   const [restartDialogOpen, setRestartDialogOpen] = useState(false);
   const [restartingSetup, setRestartingSetup] = useState(false);
@@ -50,6 +51,60 @@ export function DashboardShell({ onRestartSetup }: DashboardShellProps) {
     () => devices.filter((device) => device.kind === 'RELAY' || device.kind === 'LOCK').length,
     [devices],
   );
+  const cameraDevices = useMemo(() => devices.filter((device) => device.kind === 'CAMERA'), [devices]);
+  const sensorDevices = useMemo(() => devices.filter((device) => device.kind === 'SENSOR'), [devices]);
+
+  useEffect(() => {
+    if (cameraDevices.length === 0) {
+      setCameraSnapshots({});
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadSnapshots = async () => {
+      const nextEntries = await Promise.all(
+        cameraDevices.map(async (device) => {
+          try {
+            const snapshotBlob = await apiClient.getDeviceSnapshot(device.id);
+            const objectUrl = URL.createObjectURL(snapshotBlob);
+            return [device.id, objectUrl] as const;
+          } catch {
+            return [device.id, ''] as const;
+          }
+        }),
+      );
+
+      if (cancelled) {
+        for (const [, objectUrl] of nextEntries) {
+          if (objectUrl) {
+            URL.revokeObjectURL(objectUrl);
+          }
+        }
+        return;
+      }
+
+      setCameraSnapshots((current) => {
+        for (const existing of Object.values(current)) {
+          if (existing) {
+            URL.revokeObjectURL(existing);
+          }
+        }
+
+        return Object.fromEntries(nextEntries.filter((entry) => entry[1]));
+      });
+    };
+
+    void loadSnapshots();
+    const timerId = setInterval(() => {
+      void loadSnapshots();
+    }, 8000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(timerId);
+    };
+  }, [cameraDevices]);
 
   const widgets = [
     {
@@ -192,6 +247,76 @@ export function DashboardShell({ onRestartSetup }: DashboardShellProps) {
               </Paper>
             </Grid>
           ))}
+
+          <Grid size={{ xs: 12 }}>
+            <Paper sx={{ p: 3 }}>
+              <Stack spacing={2}>
+                <Typography variant="h5">Camera Feeds</Typography>
+                {cameraDevices.length === 0 ? (
+                  <Typography color="text.secondary">No camera devices discovered yet.</Typography>
+                ) : (
+                  <Grid container spacing={2}>
+                    {cameraDevices.map((camera) => (
+                      <Grid size={{ xs: 12, md: 6, xl: 4 }} key={camera.id}>
+                        <Paper variant="outlined" sx={{ p: 2 }}>
+                          <Stack spacing={1}>
+                            <Typography variant="subtitle1">{camera.name}</Typography>
+                            <Typography color="text.secondary" variant="body2">
+                              {camera.isOnline ? 'Online' : 'Offline'}
+                            </Typography>
+                            {cameraSnapshots[camera.id] ? (
+                              <Box
+                                component="img"
+                                src={cameraSnapshots[camera.id]}
+                                alt={`${camera.name} snapshot`}
+                                sx={{ width: '100%', borderRadius: 1, border: '1px solid', borderColor: 'divider' }}
+                              />
+                            ) : (
+                              <Typography color="text.secondary" variant="body2">
+                                Snapshot unavailable.
+                              </Typography>
+                            )}
+                          </Stack>
+                        </Paper>
+                      </Grid>
+                    ))}
+                  </Grid>
+                )}
+              </Stack>
+            </Paper>
+          </Grid>
+
+          <Grid size={{ xs: 12 }}>
+            <Paper sx={{ p: 3 }}>
+              <Stack spacing={2}>
+                <Typography variant="h5">Sensor Data</Typography>
+                {sensorDevices.length === 0 ? (
+                  <Typography color="text.secondary">No sensor devices discovered yet.</Typography>
+                ) : (
+                  <Grid container spacing={2}>
+                    {sensorDevices.map((sensor) => (
+                      <Grid size={{ xs: 12, md: 6, xl: 4 }} key={sensor.id}>
+                        <Paper variant="outlined" sx={{ p: 2 }}>
+                          <Stack spacing={1}>
+                            <Typography variant="subtitle1">{sensor.name}</Typography>
+                            <Typography color="text.secondary" variant="body2">
+                              State: {sensor.sensorState?.state ?? 'unknown'}
+                            </Typography>
+                            <Typography color="text.secondary" variant="body2">
+                              Battery: {sensor.sensorState?.batteryLevel ?? 'n/a'}
+                            </Typography>
+                            <Typography color="text.secondary" variant="body2">
+                              Signal: {sensor.sensorState?.signalLevel ?? 'n/a'}
+                            </Typography>
+                          </Stack>
+                        </Paper>
+                      </Grid>
+                    ))}
+                  </Grid>
+                )}
+              </Stack>
+            </Paper>
+          </Grid>
         </Grid>
       </Stack>
     </Box>

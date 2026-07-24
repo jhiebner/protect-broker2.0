@@ -24,6 +24,12 @@ export interface ApiDevice {
   kind: string;
   isOnline: boolean;
   lastSeenAt: string | null;
+  cameraSnapshotUrl: string | null;
+  sensorState: {
+    state: string;
+    batteryLevel: number | null;
+    signalLevel: number | null;
+  } | null;
 }
 
 export interface DiscoverySummary {
@@ -101,6 +107,28 @@ export class ApiClient {
 
   async getDevices(): Promise<{ devices: ApiDevice[] }> {
     return this.request('/api/devices');
+  }
+
+  async getDeviceSnapshot(deviceId: string): Promise<Blob> {
+    const authHeader = this.authToken ? { Authorization: `Bearer ${this.authToken}` } : {};
+    const response = await fetch(`${this.baseUrl}/api/devices/${deviceId}/snapshot`, {
+      headers: {
+        ...authHeader,
+      },
+    });
+
+    if (!response.ok) {
+      const errorBody = (await response.json().catch(() => null)) as
+        | { message?: unknown; error?: string }
+        | null;
+      const message =
+        typeof errorBody?.message === 'string'
+          ? errorBody.message
+          : errorBody?.error ?? 'Unable to load camera snapshot.';
+      throw new Error(message);
+    }
+
+    return response.blob();
   }
 
   async finishSetup(): Promise<void> {
