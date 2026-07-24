@@ -111,7 +111,7 @@ export class UnifiProtectClient implements ProtectClient {
         baseUrl,
         cookieHeader,
         authenticatedAt: new Date().toISOString(),
-        bootstrapPath: bootstrapDetected,
+        ...(bootstrapDetected ? { bootstrapPath: bootstrapDetected } : {}),
       };
 
       if (bootstrapDetected) {
