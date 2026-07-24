@@ -16,7 +16,9 @@ import {
   Stack,
   Divider,
   Typography,
+  Avatar,
 } from '@mui/material';
+import { io } from 'socket.io-client';
 
 import { apiClient, type ApiDevice } from '../../api/client.js';
 
@@ -34,8 +36,15 @@ export function DashboardShell({ onRestartSetup }: DashboardShellProps) {
 
   useEffect(() => {
     let cancelled = false;
+    let loading = false;
 
     const loadDevices = async () => {
+      if (loading) {
+        return;
+      }
+
+      loading = true;
+
       try {
         const response = await apiClient.getDevices();
         if (!cancelled) {
@@ -46,17 +55,28 @@ export function DashboardShell({ onRestartSetup }: DashboardShellProps) {
         if (!cancelled) {
           setErrorMessage(error instanceof Error ? error.message : 'Unable to load devices.');
         }
+      } finally {
+        loading = false;
       }
     };
+
+    const socket = io({
+      transports: ['websocket', 'polling'],
+    });
+
+    socket.on('devices.updated', () => {
+      void loadDevices();
+    });
 
     void loadDevices();
     const timerId = setInterval(() => {
       void loadDevices();
-    }, 5000);
+    }, 30000);
 
     return () => {
       cancelled = true;
       clearInterval(timerId);
+      socket.close();
     };
   }, []);
 
@@ -312,84 +332,113 @@ export function DashboardShell({ onRestartSetup }: DashboardShellProps) {
                   <Typography color="text.secondary">No sensor devices discovered yet.</Typography>
                 ) : (
                   <Grid container spacing={1.5}>
-                    {sensorDevices.map((sensor) => (
+                    {sensorDevices.map((sensor) => {
+                      const contactMetric = sensor.sensorState?.metrics?.find((metric) => metric.label === 'Contact');
+                      const primaryMetric = contactMetric ?? sensor.sensorState?.metrics?.[0] ?? null;
+                      const visualState = sensor.sensorState?.visualState;
+                      const isOpen = visualState === 'open';
+                      const statusLabel =
+                        contactMetric?.value === 'closed'
+                          ? 'Door closed'
+                          : contactMetric?.value === 'open'
+                            ? 'Door opened'
+                            : primaryMetric
+                              ? `${primaryMetric.label} ${primaryMetric.value}`
+                              : sensor.sensorState?.state ?? 'unknown';
+
+                      return (
                       <Grid size={{ xs: 12, sm: 6, lg: 4, xl: 3 }} key={sensor.id}>
-                        <Paper variant="outlined" sx={{ p: 1.5, minHeight: 184 }}>
-                          <Stack spacing={1.25}>
-                            <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={1}>
-                              <div>
-                                <Typography variant="subtitle2" sx={{ fontSize: '1rem', fontWeight: 700 }}>
+                        <Paper
+                          variant="outlined"
+                          sx={{
+                            p: 1.75,
+                            minHeight: 128,
+                            borderRadius: 3,
+                            backgroundColor: 'rgba(255,255,255,0.025)',
+                          }}
+                        >
+                          <Stack spacing={1.5}>
+                            <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
+                              <Stack direction="row" spacing={1.25} alignItems="center" minWidth={0}>
+                                <Avatar
+                                  variant="rounded"
+                                  sx={{
+                                    width: 28,
+                                    height: 28,
+                                    bgcolor: 'rgba(255,255,255,0.06)',
+                                    color: 'text.secondary',
+                                    fontSize: '0.9rem',
+                                  }}
+                                >
+                                  {contactMetric ? '|' : 'T'}
+                                </Avatar>
+                                <Typography
+                                  variant="subtitle1"
+                                  sx={{
+                                    fontWeight: 500,
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    whiteSpace: 'nowrap',
+                                  }}
+                                >
                                   {sensor.name}
                                 </Typography>
-                                <Typography color="text.secondary" variant="caption">
-                                  {sensor.sensorState?.state ?? 'unknown'}
-                                </Typography>
-                              </div>
-                              <Chip
-                                size="small"
-                                color={sensor.isOnline ? 'success' : 'default'}
-                                label={sensor.isOnline ? 'Live' : 'Offline'}
-                              />
-                            </Stack>
-
-                            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-                              <Chip
-                                size="small"
-                                variant="outlined"
-                                label={
-                                  sensor.sensorState?.batteryLevel !== null &&
-                                  sensor.sensorState?.batteryLevel !== undefined
-                                    ? `Battery ${sensor.sensorState.batteryLevel}%`
-                                    : 'Battery n/a'
-                                }
-                              />
-                              <Chip
-                                size="small"
-                                variant="outlined"
-                                label={
-                                  sensor.sensorState?.signalLevel !== null &&
-                                  sensor.sensorState?.signalLevel !== undefined
-                                    ? `Signal ${sensor.sensorState.signalLevel}`
-                                    : 'Signal n/a'
-                                }
-                              />
-                            </Stack>
-
-                            <Divider flexItem />
-
-                            {sensor.sensorState?.metrics && sensor.sensorState.metrics.length > 0 ? (
-                              <Grid container spacing={1}>
-                                {sensor.sensorState.metrics.slice(0, 6).map((metric) => (
-                                  <Grid size={{ xs: 6 }} key={`${sensor.id}-${metric.label}`}>
-                                    <Box
-                                      sx={{
-                                        border: '1px solid',
-                                        borderColor: 'divider',
-                                        borderRadius: 2,
-                                        px: 1,
-                                        py: 0.75,
-                                        backgroundColor: 'rgba(255,255,255,0.03)',
-                                      }}
-                                    >
-                                      <Typography variant="caption" color="text.secondary" display="block">
-                                        {metric.label}
-                                      </Typography>
-                                      <Typography variant="body2" sx={{ fontWeight: 700 }}>
-                                        {metric.value}
-                                      </Typography>
-                                    </Box>
-                                  </Grid>
-                                ))}
-                              </Grid>
-                            ) : (
-                              <Typography color="text.secondary" variant="body2">
-                                Waiting for richer Protect sensor telemetry from this device model.
+                              </Stack>
+                              <Typography color="text.secondary" sx={{ fontSize: '1.8rem', lineHeight: 1 }}>
+                                ›
                               </Typography>
-                            )}
+                            </Stack>
+
+                            <Chip
+                              size="medium"
+                              label={statusLabel}
+                              sx={{
+                                alignSelf: 'flex-start',
+                                borderRadius: 999,
+                                px: 1,
+                                backgroundColor: isOpen
+                                  ? 'rgba(255, 193, 7, 0.12)'
+                                  : 'rgba(83, 229, 170, 0.12)',
+                                color: isOpen ? 'warning.main' : 'success.main',
+                                '& .MuiChip-label': {
+                                  fontWeight: 700,
+                                  fontSize: '0.95rem',
+                                },
+                              }}
+                            />
+
+                            <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+                              {sensor.sensorState?.batteryLevel !== null &&
+                              sensor.sensorState?.batteryLevel !== undefined ? (
+                                <Chip size="small" variant="outlined" label={`Battery ${sensor.sensorState.batteryLevel}%`} />
+                              ) : null}
+                              {sensor.sensorState?.signalLevel !== null &&
+                              sensor.sensorState?.signalLevel !== undefined ? (
+                                <Chip size="small" variant="outlined" label={`Signal ${sensor.sensorState.signalLevel}`} />
+                              ) : null}
+                              {!sensor.isOnline ? <Chip size="small" variant="outlined" label="Offline" /> : null}
+                            </Stack>
+
+                            {sensor.sensorState?.metrics && sensor.sensorState.metrics.length > 1 ? (
+                              <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+                                {sensor.sensorState.metrics
+                                  .filter((metric) => metric !== contactMetric)
+                                  .slice(0, 3)
+                                  .map((metric) => (
+                                    <Chip
+                                      key={`${sensor.id}-${metric.label}`}
+                                      size="small"
+                                      label={`${metric.label} ${metric.value}`}
+                                      sx={{ backgroundColor: 'rgba(255,255,255,0.04)' }}
+                                    />
+                                  ))}
+                              </Stack>
+                            ) : null}
                           </Stack>
                         </Paper>
                       </Grid>
-                    ))}
+                      );
+                    })}
                   </Grid>
                 )}
               </Stack>

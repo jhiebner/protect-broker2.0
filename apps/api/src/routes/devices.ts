@@ -171,6 +171,12 @@ export async function registerDeviceRoutes(app: FastifyInstance, container: AppC
   app.get('/api/devices', async (request) => {
     await request.jwtVerify();
 
+    try {
+      await container.bootstrapService.refreshProtectDevicesIfStale();
+    } catch (error) {
+      request.log.warn({ error }, 'Unable to refresh Protect device state before serving devices.');
+    }
+
     const devices = await container.prisma.device.findMany({
       orderBy: {
         name: 'asc',
@@ -204,6 +210,10 @@ export async function registerDeviceRoutes(app: FastifyInstance, container: AppC
                       'stats.signal.value',
                       'stats.signal.rssi',
                     ]),
+                  visualState:
+                    openStateFromMetrics(buildSensorMetrics(metadata)) ??
+                    readStringAtPaths(metadata, ['type']) ??
+                    null,
                   metrics: buildSensorMetrics(metadata),
                 }
               : null;
@@ -254,4 +264,22 @@ export async function registerDeviceRoutes(app: FastifyInstance, container: AppC
     reply.header('Cache-Control', 'no-store');
     return reply.send(snapshot.imageBytes);
   });
+}
+
+function openStateFromMetrics(metrics: SensorMetric[]): string | null {
+  const contactMetric = metrics.find((metric) => metric.label === 'Contact');
+
+  if (!contactMetric) {
+    return null;
+  }
+
+  if (contactMetric.value === 'open') {
+    return 'open';
+  }
+
+  if (contactMetric.value === 'closed') {
+    return 'closed';
+  }
+
+  return null;
 }

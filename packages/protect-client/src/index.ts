@@ -1,5 +1,6 @@
 import { request as httpsRequest } from 'node:https';
 import { Agent as HttpsAgent } from 'node:https';
+import WebSocket from 'ws';
 
 import type { DeviceProvider } from '@protect-broker/broker-core';
 import type { ProtectConnectionInput } from '@protect-broker/shared';
@@ -23,6 +24,18 @@ interface ProtectSession {
   bootstrapPath: string;
 }
 
+interface DeviceSubscriptionState {
+  settingsKey: string;
+  reconnectTimer: NodeJS.Timeout | null;
+  socket: WebSocket | null;
+  stopped: boolean;
+}
+
+interface ProtectDeviceSubscriptionEvent {
+  type: string;
+  item?: Record<string, unknown>;
+}
+
 export interface DiscoveredProtectDevice {
   externalId: string;
   name: string;
@@ -38,6 +51,11 @@ export interface ProtectClient extends DeviceProvider {
     settings: ProtectConnectionInput,
     cameraExternalId: string,
   ): Promise<{ contentType: string; imageBytes: Buffer }>;
+  subscribeToDevices(
+    settings: ProtectConnectionInput,
+    onEvent: (event: ProtectDeviceSubscriptionEvent) => void | Promise<void>,
+  ): Promise<void>;
+  unsubscribeFromDevices(): Promise<void>;
 }
 
 function buildBaseUrl(settings: ProtectConnectionInput): string {
@@ -69,6 +87,7 @@ function extractCookieHeader(headers: Record<string, string | string[] | undefin
 export class UnifiProtectClient implements ProtectClient {
   readonly providerName = 'unifi-protect';
   private session: ProtectSession | null = null;
+  private deviceSubscription: DeviceSubscriptionState | null = null;
 
   async testConnection(settings: ProtectConnectionInput): Promise<{ ok: boolean; message?: string }> {
     try {
@@ -167,6 +186,60 @@ export class UnifiProtectClient implements ProtectClient {
 
   async disconnect(): Promise<void> {
     this.session = null;
+    await this.unsubscribeFromDevices();
+  }
+
+  async subscribeToDevices(
+    settings: ProtectConnectionInput,
+    onEvent: (event: ProtectDeviceSubscriptionEvent) => void | Promise<void>,
+  ): Promise<void> {
+    const settingsKey = JSON.stringify({
+      host: settings.host,
+      port: settings.port,
+      username: settings.username,
+      allowSelfSignedCertificate: settings.allowSelfSignedCertificate ?? true,
+    });
+
+    if (
+      this.deviceSubscription &&
+      !this.deviceSubscription.stopped &&
+      this.deviceSubscription.settingsKey === settingsKey
+    ) {
+      return;
+    }
+
+    await this.unsubscribeFromDevices();
+
+    const state: DeviceSubscriptionState = {
+      settingsKey,
+      reconnectTimer: null,
+      socket: null,
+      stopped: false,
+    };
+
+    this.deviceSubscription = state;
+    await this.openDeviceSubscription(settings, state, onEvent);
+  }
+
+  async unsubscribeFromDevices(): Promise<void> {
+    if (!this.deviceSubscription) {
+      return;
+    }
+
+    this.deviceSubscription.stopped = true;
+
+    if (this.deviceSubscription.reconnectTimer) {
+      clearTimeout(this.deviceSubscription.reconnectTimer);
+      this.deviceSubscription.reconnectTimer = null;
+    }
+
+    if (this.deviceSubscription.socket) {
+      this.deviceSubscription.socket.removeAllListeners();
+      this.deviceSubscription.socket.close();
+      this.deviceSubscription.socket = null;
+    }
+
+    this.deviceSubscription = null;
   }
 
   private async authenticate(settings: ProtectConnectionInput): Promise<ProtectSession> {
@@ -219,6 +292,131 @@ export class UnifiProtectClient implements ProtectClient {
     }
 
     throw new Error('Protect login succeeded but bootstrap endpoint could not be reached.');
+  }
+
+  private async openDeviceSubscription(
+    settings: ProtectConnectionInput,
+    state: DeviceSubscriptionState,
+    onEvent: (event: ProtectDeviceSubscriptionEvent) => void | Promise<void>,
+  ): Promise<void> {
+    const session = await this.authenticate(settings);
+    this.session = session;
+
+    const subscriptionPaths = ['/proxy/protect/v1/subscribe/devices', '/v1/subscribe/devices'];
+    const subscriptionUrls = subscriptionPaths.map((path) => `${toWsBaseUrl(session.baseUrl)}${path}`);
+
+    let lastError: Error | null = null;
+
+    for (const url of subscriptionUrls) {
+      if (state.stopped) {
+        return;
+      }
+
+      try {
+        await this.connectDeviceSocket(url, settings, session.cookieHeader, state, onEvent);
+        return;
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error('Device subscription failed.');
+      }
+    }
+
+    if (!state.stopped) {
+      this.scheduleDeviceReconnect(settings, state, onEvent);
+    }
+
+    if (lastError) {
+      throw lastError;
+    }
+  }
+
+  private async connectDeviceSocket(
+    url: string,
+    settings: ProtectConnectionInput,
+    cookieHeader: string,
+    state: DeviceSubscriptionState,
+    onEvent: (event: ProtectDeviceSubscriptionEvent) => void | Promise<void>,
+  ): Promise<void> {
+    await new Promise<void>((resolve, reject) => {
+      let settled = false;
+
+      const socket = new WebSocket(url, {
+        headers: {
+          Cookie: cookieHeader,
+        },
+        rejectUnauthorized: !settings.allowSelfSignedCertificate,
+      });
+
+      const fail = (error: Error) => {
+        if (!settled) {
+          settled = true;
+          reject(error);
+        }
+      };
+
+      socket.once('open', () => {
+        if (settled) {
+          return;
+        }
+
+        settled = true;
+        state.socket = socket;
+        resolve();
+      });
+
+      socket.once('error', (error) => {
+        fail(error instanceof Error ? error : new Error('Protect websocket connection failed.'));
+      });
+
+      socket.once('unexpected-response', (_request, response) => {
+        fail(new Error(`Protect websocket subscription returned HTTP ${response.statusCode ?? 0}.`));
+      });
+
+      socket.on('message', (message) => {
+        const payloadText = message.toString();
+
+        try {
+          const payload = JSON.parse(payloadText) as ProtectDeviceSubscriptionEvent;
+          void onEvent(payload);
+        } catch {
+          return;
+        }
+      });
+
+      socket.on('close', () => {
+        state.socket = null;
+
+        if (!settled) {
+          fail(new Error('Protect websocket closed during connection setup.'));
+          return;
+        }
+
+        if (!state.stopped) {
+          this.scheduleDeviceReconnect(settings, state, onEvent);
+        }
+      });
+    });
+  }
+
+  private scheduleDeviceReconnect(
+    settings: ProtectConnectionInput,
+    state: DeviceSubscriptionState,
+    onEvent: (event: ProtectDeviceSubscriptionEvent) => void | Promise<void>,
+  ): void {
+    if (state.stopped || state.reconnectTimer) {
+      return;
+    }
+
+    state.reconnectTimer = setTimeout(() => {
+      state.reconnectTimer = null;
+
+      if (state.stopped) {
+        return;
+      }
+
+      void this.openDeviceSubscription(settings, state, onEvent).catch(() => {
+        this.scheduleDeviceReconnect(settings, state, onEvent);
+      });
+    }, 3000);
   }
 
   private async httpRequest(args: {
@@ -341,6 +539,18 @@ export class UnifiProtectClient implements ProtectClient {
       request.end();
     });
   }
+}
+
+function toWsBaseUrl(baseUrl: string): string {
+  if (baseUrl.startsWith('https://')) {
+    return `wss://${baseUrl.slice('https://'.length)}`;
+  }
+
+  if (baseUrl.startsWith('http://')) {
+    return `ws://${baseUrl.slice('http://'.length)}`;
+  }
+
+  return baseUrl;
 }
 
 function toDeviceArray(value: unknown): Array<Record<string, unknown>> {

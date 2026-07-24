@@ -29,6 +29,7 @@ export interface ApiDevice {
     state: string;
     batteryLevel: number | null;
     signalLevel: number | null;
+    visualState: string | null;
     metrics: Array<{ label: string; value: string }>;
   } | null;
 }

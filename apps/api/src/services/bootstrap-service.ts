@@ -43,6 +43,9 @@ interface StoredProtectConnection {
 }
 
 export class BootstrapService {
+  private lastProtectSyncAt = 0;
+  private protectSyncInFlight: Promise<void> | null = null;
+
   constructor(private readonly deps: BootstrapServiceDependencies) {}
 
   async getBootstrapState(): Promise<BootstrapState> {
@@ -126,19 +129,58 @@ export class BootstrapService {
     offline: number;
     byKind: Partial<Record<DeviceKind, number>>;
   }> {
+    const discoveredDevices = await this.fetchProtectDevices();
+
+    return this.persistProtectDevices(discoveredDevices);
+  }
+
+  async refreshProtectDevicesIfStale(maxAgeMs = 4000): Promise<void> {
+    const now = Date.now();
+
+    if (this.lastProtectSyncAt > 0 && now - this.lastProtectSyncAt < maxAgeMs) {
+      return;
+    }
+
+    if (this.protectSyncInFlight) {
+      await this.protectSyncInFlight;
+      return;
+    }
+
+    this.protectSyncInFlight = this.fetchProtectDevices()
+      .then((devices) => this.persistProtectDevices(devices))
+      .then(() => {
+        this.lastProtectSyncAt = Date.now();
+      })
+      .finally(() => {
+        this.protectSyncInFlight = null;
+      });
+
+    await this.protectSyncInFlight;
+  }
+
+  private async fetchProtectDevices() {
     const protectSettings = await this.readSetting<StoredProtectConnection>(SETTING_KEYS.protect);
 
     if (!protectSettings) {
       throw new Error('Protect connection must be configured before discovery can run.');
     }
 
-    const discoveredDevices = await this.deps.protectClient.discoverDevices({
+    return this.deps.protectClient.discoverDevices({
       host: protectSettings.host,
       port: protectSettings.port,
       username: protectSettings.username,
       password: decryptString(protectSettings.encryptedPassword, this.deps.instanceSecret),
       allowSelfSignedCertificate: protectSettings.allowSelfSignedCertificate ?? true,
     });
+  }
+
+  private async persistProtectDevices(discoveredDevices: Awaited<ReturnType<ProtectClient['discoverDevices']>>): Promise<{
+    discovered: number;
+    saved: number;
+    online: number;
+    offline: number;
+    byKind: Partial<Record<DeviceKind, number>>;
+  }> {
 
     let saved = 0;
     let online = 0;

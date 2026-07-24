@@ -36,6 +36,60 @@ export async function createApp() {
     app.io.emit('protect.connection', payload);
   });
 
+  const startProtectSubscription = async () => {
+    const bootstrapState = await container.bootstrapService.getBootstrapState();
+
+    if (!bootstrapState.setupComplete || !bootstrapState.protectConfigured) {
+      await container.protectClient.unsubscribeFromDevices();
+      return;
+    }
+
+    const protectConnection = await container.bootstrapService.getProtectConnectionInput();
+    await container.protectClient.subscribeToDevices(protectConnection, async () => {
+      try {
+        await container.bootstrapService.refreshProtectDevicesIfStale(0);
+        app.io.emit('devices.updated', {
+          at: new Date().toISOString(),
+        });
+      } catch (error) {
+        app.log.debug({ error }, 'Protect device refresh from websocket event failed.');
+      }
+    });
+  };
+
+  const protectSubscriptionCheckIntervalId = setInterval(() => {
+    void (async () => {
+      try {
+        await startProtectSubscription();
+      } catch (error) {
+        app.log.debug({ error }, 'Protect device subscription check skipped.');
+      }
+    })();
+  }, 5000);
+
+  const fallbackProtectRefreshIntervalId = setInterval(() => {
+    void (async () => {
+      try {
+        const bootstrapState = await container.bootstrapService.getBootstrapState();
+
+        if (!bootstrapState.setupComplete || !bootstrapState.protectConfigured) {
+          return;
+        }
+
+        await container.bootstrapService.refreshProtectDevicesIfStale(0);
+        app.io.emit('devices.updated', {
+          at: new Date().toISOString(),
+        });
+      } catch (error) {
+        app.log.debug({ error }, 'Fallback Protect refresh skipped.');
+      }
+    })();
+  }, 30000);
+
+  void startProtectSubscription().catch((error) => {
+    app.log.debug({ error }, 'Initial Protect device subscription skipped.');
+  });
+
   await registerHealthRoutes(app);
   await registerDeviceRoutes(app, container);
   await registerBootstrapRoutes(app, container);
@@ -44,6 +98,9 @@ export async function createApp() {
   await registerStaticWeb(app, config.PB_WEB_DIST_DIR);
 
   app.addHook('onClose', async () => {
+    clearInterval(protectSubscriptionCheckIntervalId);
+    clearInterval(fallbackProtectRefreshIntervalId);
+    await container.protectClient.unsubscribeFromDevices();
     await container.prisma.$disconnect();
   });
 
