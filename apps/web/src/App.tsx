@@ -57,6 +57,7 @@ export function App() {
   if (!bootstrapState.setupComplete) {
     return (
       <SetupWizard
+        bootstrapState={bootstrapState}
         onCreateAdministrator={async (payload) => {
           await apiClient.createAdministrator(payload);
         }}
@@ -67,7 +68,10 @@ export function App() {
         onFinish={async (credentials) => {
           await apiClient.finishSetup();
           await refreshBootstrap();
-          await login(credentials);
+
+          if (credentials) {
+            await login(credentials);
+          }
         }}
       />
     );

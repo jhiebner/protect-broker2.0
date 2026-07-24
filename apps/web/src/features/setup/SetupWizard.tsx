@@ -16,6 +16,7 @@ import {
 } from '@mui/material';
 
 import type {
+  BootstrapState,
   DashboardPreferencesInput,
   FarmProfileInput,
   ProtectConnectionInput,
@@ -32,6 +33,7 @@ const setupSteps = [
 ] as const;
 
 interface SetupWizardProps {
+  bootstrapState: BootstrapState;
   onCreateAdministrator: (payload: SetupAdminInput) => Promise<void>;
   onTestProtectConnection: (
     payload: ProtectConnectionInput,
@@ -39,10 +41,11 @@ interface SetupWizardProps {
   onSaveProtectConnection: (payload: ProtectConnectionInput) => Promise<void>;
   onSaveFarmProfile: (payload: FarmProfileInput) => Promise<void>;
   onSaveDashboardPreferences: (payload: DashboardPreferencesInput) => Promise<void>;
-  onFinish: (credentials: { username: string; password: string }) => Promise<void>;
+  onFinish: (credentials?: { username: string; password: string }) => Promise<void>;
 }
 
 export function SetupWizard({
+  bootstrapState,
   onCreateAdministrator,
   onTestProtectConnection,
   onSaveProtectConnection,
@@ -50,10 +53,31 @@ export function SetupWizard({
   onSaveDashboardPreferences,
   onFinish,
 }: SetupWizardProps) {
-  const [activeStep, setActiveStep] = useState(0);
+  const initialStep = useMemo(() => {
+    if (!bootstrapState.administratorCreated) {
+      return 0;
+    }
+
+    if (!bootstrapState.protectConfigured) {
+      return 1;
+    }
+
+    if (!bootstrapState.farmConfigured) {
+      return 2;
+    }
+
+    if (!bootstrapState.dashboardConfigured) {
+      return 4;
+    }
+
+    return 5;
+  }, [bootstrapState]);
+
+  const [activeStep, setActiveStep] = useState(initialStep);
   const [message, setMessage] = useState<string | null>(null);
   const [severity, setSeverity] = useState<'success' | 'info' | 'warning' | 'error'>('info');
   const [busy, setBusy] = useState(false);
+  const [createdAdministratorInWizard, setCreatedAdministratorInWizard] = useState(false);
 
   const [admin, setAdmin] = useState<SetupAdminInput>({
     username: '',
@@ -80,6 +104,7 @@ export function SetupWizard({
   });
 
   const progressValue = useMemo(() => ((activeStep + 1) / setupSteps.length) * 100, [activeStep]);
+  const requiresAdminCreation = !bootstrapState.administratorCreated;
   const showPasswordMismatch =
     activeStep === 0 && admin.confirmPassword.length > 0 && admin.password !== admin.confirmPassword;
   const adminStepValid =
@@ -87,16 +112,16 @@ export function SetupWizard({
     admin.password.length >= 12 &&
     admin.confirmPassword.length >= 12 &&
     admin.password === admin.confirmPassword;
-  const disableContinue = busy || (activeStep === 0 && !adminStepValid);
+  const disableContinue = busy || (activeStep === 0 && requiresAdminCreation && !adminStepValid);
 
   const runStep = async () => {
-    if (activeStep === 0 && admin.password !== admin.confirmPassword) {
+    if (activeStep === 0 && requiresAdminCreation && admin.password !== admin.confirmPassword) {
       setSeverity('error');
       setMessage('Passwords must match.');
       return;
     }
 
-    if (activeStep === 0 && admin.password.length < 12) {
+    if (activeStep === 0 && requiresAdminCreation && admin.password.length < 12) {
       setSeverity('error');
       setMessage('Administrator password must be at least 12 characters.');
       return;
@@ -107,9 +132,15 @@ export function SetupWizard({
 
     try {
       if (activeStep === 0) {
-        await onCreateAdministrator(admin);
-        setSeverity('success');
-        setMessage('Administrator account created.');
+        if (requiresAdminCreation) {
+          await onCreateAdministrator(admin);
+          setCreatedAdministratorInWizard(true);
+          setSeverity('success');
+          setMessage('Administrator account created.');
+        } else {
+          setSeverity('info');
+          setMessage('Administrator already configured. Continuing setup.');
+        }
       }
 
       if (activeStep === 1) {
@@ -131,7 +162,14 @@ export function SetupWizard({
       }
 
       if (activeStep === 5) {
-        await onFinish({ username: admin.username, password: admin.password });
+        await onFinish(
+          createdAdministratorInWizard
+            ? {
+                username: admin.username,
+                password: admin.password,
+              }
+            : undefined,
+        );
         return;
       }
 
@@ -183,6 +221,12 @@ export function SetupWizard({
           </Stepper>
 
           {message ? <Alert severity={severity}>{message}</Alert> : null}
+
+          {!requiresAdminCreation && activeStep > 0 ? (
+            <Alert severity="info">
+              Administrator already exists for this appliance. Complete the remaining setup steps.
+            </Alert>
+          ) : null}
 
           {activeStep === 0 ? (
             <Stack spacing={2}>
@@ -368,7 +412,7 @@ export function SetupWizard({
           <Stack direction="row" spacing={2} justifyContent="space-between">
             <Button
               variant="text"
-              disabled={activeStep === 0 || busy}
+              disabled={activeStep === initialStep || busy}
               onClick={() => setActiveStep((current) => Math.max(current - 1, 0))}
             >
               Back
