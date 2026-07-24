@@ -1,14 +1,21 @@
-import pino from 'pino';
+import type { FastifyServerOptions } from 'fastify';
 
-export const logger = pino({
-  level: process.env.NODE_ENV === 'production' ? 'info' : 'debug',
-  transport:
-    process.env.NODE_ENV === 'production'
-      ? undefined
-      : {
-          target: 'pino-pretty',
-          options: {
-            colorize: true,
-          },
-        },
-});
+type FastifyLoggerOptions = NonNullable<FastifyServerOptions['logger']>;
+
+export function getFastifyLoggerOptions(): FastifyLoggerOptions {
+  if (process.env.NODE_ENV === 'production') {
+    return {
+      level: 'info',
+    };
+  }
+
+  return {
+    level: 'debug',
+    transport: {
+      target: 'pino-pretty',
+      options: {
+        colorize: true,
+      },
+    },
+  };
+}

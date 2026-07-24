@@ -4,7 +4,7 @@ import fastifySensible from '@fastify/sensible';
 import Fastify from 'fastify';
 
 import { config } from './lib/config.js';
-import { logger } from './lib/logger.js';
+import { getFastifyLoggerOptions } from './lib/logger.js';
 import { readOrCreateInstanceSecret } from './lib/secrets.js';
 import socketPlugin from './plugins/socket.js';
 import { registerStaticWeb } from './plugins/static-web.js';
@@ -15,7 +15,7 @@ import { registerHealthRoutes } from './routes/health.js';
 import { registerSetupRoutes } from './routes/setup.js';
 
 export async function createApp() {
-  const app = Fastify({ loggerInstance: logger });
+  const app = Fastify({ logger: getFastifyLoggerOptions() });
   const instanceSecret = await readOrCreateInstanceSecret(config.PB_DATA_DIR);
   const container = createContainer(instanceSecret);
 
