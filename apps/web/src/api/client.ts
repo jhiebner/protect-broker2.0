@@ -72,9 +72,12 @@ export class ApiClient {
   }
 
   private async request<T>(path: string, init?: RequestInit): Promise<T> {
+    const hasBody = typeof init?.body === 'string' ? init.body.length > 0 : init?.body !== undefined;
+
     const response = await fetch(`${this.baseUrl}${path}`, {
       headers: {
-        'Content-Type': 'application/json',
+        ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
+        ...(init?.headers ?? {}),
       },
       ...init,
     });

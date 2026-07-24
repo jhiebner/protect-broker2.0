@@ -412,7 +412,7 @@ export function SetupWizard({
           <Stack direction="row" spacing={2} justifyContent="space-between">
             <Button
               variant="text"
-              disabled={activeStep === initialStep || busy}
+              disabled={activeStep === 0 || busy}
               onClick={() => setActiveStep((current) => Math.max(current - 1, 0))}
             >
               Back
