@@ -10,6 +10,7 @@ import { registerStaticWeb } from './plugins/static-web.js';
 import { createContainer } from './container.js';
 import { registerAuthRoutes } from './routes/auth.js';
 import { registerBootstrapRoutes } from './routes/bootstrap.js';
+import { registerDeviceRoutes } from './routes/devices.js';
 import { registerHealthRoutes } from './routes/health.js';
 import { registerSetupRoutes } from './routes/setup.js';
 
@@ -36,6 +37,7 @@ export async function createApp() {
   });
 
   await registerHealthRoutes(app);
+  await registerDeviceRoutes(app, container);
   await registerBootstrapRoutes(app, container);
   await registerAuthRoutes(app, container);
   await registerSetupRoutes(app, container);

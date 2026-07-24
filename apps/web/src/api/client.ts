@@ -16,6 +16,16 @@ interface LoginResponse {
   };
 }
 
+export interface ApiDevice {
+  id: string;
+  externalId: string;
+  provider: string;
+  name: string;
+  kind: string;
+  isOnline: boolean;
+  lastSeenAt: string | null;
+}
+
 export class ApiClient {
   constructor(private readonly baseUrl = '') {}
 
@@ -69,6 +79,10 @@ export class ApiClient {
     return this.request('/api/setup/discovery', {
       method: 'POST',
     });
+  }
+
+  async getDevices(): Promise<{ devices: ApiDevice[] }> {
+    return this.request('/api/devices');
   }
 
   async finishSetup(): Promise<void> {

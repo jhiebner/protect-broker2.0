@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Box,
@@ -80,6 +80,8 @@ export function SetupWizard({
   const [severity, setSeverity] = useState<'success' | 'info' | 'warning' | 'error'>('info');
   const [busy, setBusy] = useState(false);
   const [createdAdministratorInWizard, setCreatedAdministratorInWizard] = useState(false);
+  const [discoveryAttempted, setDiscoveryAttempted] = useState(false);
+  const [discoveryFailed, setDiscoveryFailed] = useState(false);
 
   const [admin, setAdmin] = useState<SetupAdminInput>({
     username: '',
@@ -122,7 +124,41 @@ export function SetupWizard({
   const disableContinue =
     busy ||
     (activeStep === 0 && requiresAdminCreation && !adminStepValid) ||
-    (activeStep === 2 && !farmStepValid);
+    (activeStep === 2 && !farmStepValid) ||
+    (activeStep === 3 && !discoveryFailed);
+
+  useEffect(() => {
+    setMessage(null);
+  }, [activeStep]);
+
+  const runDiscoveryStep = async () => {
+    setBusy(true);
+    setSeverity('info');
+    setMessage('Discovering Protect devices...');
+
+    try {
+      const result = await onDiscoverDevices();
+      setDiscoveryFailed(false);
+      setSeverity('success');
+      setMessage(`Discovery complete. Found ${result.discovered} devices and saved ${result.saved}.`);
+      setActiveStep(4);
+    } catch (error) {
+      setDiscoveryFailed(true);
+      setSeverity('error');
+      setMessage(error instanceof Error ? error.message : 'Unable to discover devices.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeStep !== 3 || discoveryAttempted) {
+      return;
+    }
+
+    setDiscoveryAttempted(true);
+    void runDiscoveryStep();
+  }, [activeStep, discoveryAttempted]);
 
   const runStep = async () => {
     if (activeStep === 0 && requiresAdminCreation && admin.password !== admin.confirmPassword) {
@@ -172,9 +208,8 @@ export function SetupWizard({
       }
 
       if (activeStep === 3) {
-        const result = await onDiscoverDevices();
-        setSeverity('success');
-        setMessage(`Discovery complete. Found ${result.discovered} devices and saved ${result.saved}.`);
+        await runDiscoveryStep();
+        return;
       }
 
       if (activeStep === 4) {
@@ -244,7 +279,7 @@ export function SetupWizard({
 
           {message ? <Alert severity={severity}>{message}</Alert> : null}
 
-          {!requiresAdminCreation && activeStep > 0 ? (
+          {!requiresAdminCreation && activeStep === 0 ? (
             <Alert severity="info">
               Administrator already exists for this appliance. Complete the remaining setup steps.
             </Alert>
@@ -397,12 +432,15 @@ export function SetupWizard({
           {activeStep === 3 ? (
             <Paper variant="outlined" sx={{ p: 3 }}>
               <Stack spacing={2}>
-                <Typography variant="h5">Device Discovery Placeholder</Typography>
+                <Typography variant="h5">Device Discovery</Typography>
                 <Typography color="text.secondary">
-                  Phase 2 will connect to UniFi Protect, discover devices automatically, and let you assign
-                  them to farm zones from this step.
+                  Protect Broker is discovering devices from your Protect console.
                 </Typography>
-                <Alert severity="info">The provider seam is in place. Discovery logic is next.</Alert>
+                <Alert severity={discoveryFailed ? 'error' : 'info'}>
+                  {discoveryFailed
+                    ? 'Discovery failed. Press Continue to retry.'
+                    : 'Discovery runs automatically when this step opens.'}
+                </Alert>
               </Stack>
             </Paper>
           ) : null}
@@ -464,7 +502,11 @@ export function SetupWizard({
               Back
             </Button>
             <Button variant="contained" disabled={disableContinue} onClick={() => void runStep()}>
-              {activeStep === setupSteps.length - 1 ? 'Finish Setup' : 'Continue'}
+              {activeStep === 3 && discoveryFailed
+                ? 'Retry Discovery'
+                : activeStep === setupSteps.length - 1
+                  ? 'Finish Setup'
+                  : 'Continue'}
             </Button>
           </Stack>
         </Stack>
