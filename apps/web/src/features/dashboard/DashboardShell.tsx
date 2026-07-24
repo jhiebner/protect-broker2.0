@@ -303,11 +303,24 @@ export function DashboardShell({ onRestartSetup }: DashboardShellProps) {
                               State: {sensor.sensorState?.state ?? 'unknown'}
                             </Typography>
                             <Typography color="text.secondary" variant="body2">
-                              Battery: {sensor.sensorState?.batteryLevel ?? 'n/a'}
+                              Battery:{' '}
+                              {sensor.sensorState?.batteryLevel !== null &&
+                              sensor.sensorState?.batteryLevel !== undefined
+                                ? `${sensor.sensorState.batteryLevel}%`
+                                : 'n/a'}
                             </Typography>
                             <Typography color="text.secondary" variant="body2">
-                              Signal: {sensor.sensorState?.signalLevel ?? 'n/a'}
+                              Signal:{' '}
+                              {sensor.sensorState?.signalLevel !== null &&
+                              sensor.sensorState?.signalLevel !== undefined
+                                ? `${sensor.sensorState.signalLevel}`
+                                : 'n/a'}
                             </Typography>
+                            {sensor.sensorState?.metrics?.map((metric) => (
+                              <Typography color="text.secondary" variant="body2" key={`${sensor.id}-${metric.label}`}>
+                                {metric.label}: {metric.value}
+                              </Typography>
+                            ))}
                           </Stack>
                         </Paper>
                       </Grid>

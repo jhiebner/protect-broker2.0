@@ -2,10 +2,74 @@ import type { FastifyInstance } from 'fastify';
 
 import type { AppContainer } from '../container.js';
 
+interface SensorMetric {
+  label: string;
+  value: string;
+}
+
 function readNumber(metadata: Record<string, unknown>, keys: string[]): number | null {
   for (const key of keys) {
     const value = metadata[key];
     if (typeof value === 'number' && Number.isFinite(value)) {
+      return value;
+    }
+  }
+
+  return null;
+}
+
+function readBoolean(metadata: Record<string, unknown>, keys: string[]): boolean | null {
+  for (const key of keys) {
+    const value = metadata[key];
+    if (typeof value === 'boolean') {
+      return value;
+    }
+  }
+
+  return null;
+}
+
+function getValueAtPath(metadata: Record<string, unknown>, path: string): unknown {
+  const parts = path.split('.');
+  let current: unknown = metadata;
+
+  for (const part of parts) {
+    if (!current || typeof current !== 'object' || Array.isArray(current)) {
+      return null;
+    }
+
+    current = (current as Record<string, unknown>)[part];
+  }
+
+  return current;
+}
+
+function readNumberAtPaths(metadata: Record<string, unknown>, paths: string[]): number | null {
+  for (const path of paths) {
+    const value = getValueAtPath(metadata, path);
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value;
+    }
+  }
+
+  return null;
+}
+
+function readStringAtPaths(metadata: Record<string, unknown>, paths: string[]): string | null {
+  for (const path of paths) {
+    const value = getValueAtPath(metadata, path);
+    if (typeof value === 'string' && value.length > 0) {
+      return value;
+    }
+  }
+
+  return null;
+}
+
+function readBooleanAtPaths(metadata: Record<string, unknown>, paths: string[]): boolean | null {
+  for (const path of paths) {
+    const value = getValueAtPath(metadata, path);
+    if (typeof value === 'boolean') {
       return value;
     }
   }
@@ -30,6 +94,79 @@ function toMetadataRecord(metadata: unknown): Record<string, unknown> {
     : {};
 }
 
+function boolToState(value: boolean | null, trueLabel: string, falseLabel: string): string | null {
+  if (value === null) {
+    return null;
+  }
+
+  return value ? trueLabel : falseLabel;
+}
+
+function buildSensorMetrics(metadata: Record<string, unknown>): SensorMetric[] {
+  const metrics: SensorMetric[] = [];
+
+  const openState =
+    boolToState(
+      readBooleanAtPaths(metadata, [
+        'isOpened',
+        'isOpen',
+        'stats.isOpened',
+        'stats.contact.isOpen',
+      ]),
+      'open',
+      'closed',
+    ) ??
+    boolToState(readBoolean(metadata, ['isOpened', 'isOpen']), 'open', 'closed');
+
+  if (openState) {
+    metrics.push({ label: 'Contact', value: openState });
+  }
+
+  const motionState = boolToState(
+    readBooleanAtPaths(metadata, ['isMotionDetected', 'stats.isMotionDetected', 'stats.motion.isDetected']),
+    'detected',
+    'clear',
+  );
+  if (motionState) {
+    metrics.push({ label: 'Motion', value: motionState });
+  }
+
+  const leakState = boolToState(
+    readBooleanAtPaths(metadata, ['isLeakDetected', 'stats.isLeakDetected', 'stats.leak.isDetected']),
+    'detected',
+    'clear',
+  );
+  if (leakState) {
+    metrics.push({ label: 'Leak', value: leakState });
+  }
+
+  const temperature = readNumberAtPaths(metadata, ['stats.temperature.value', 'temperature', 'temperature.value']);
+  if (temperature !== null) {
+    metrics.push({ label: 'Temperature', value: `${temperature.toFixed(1)} C` });
+  }
+
+  const humidity = readNumberAtPaths(metadata, ['stats.humidity.value', 'humidity', 'humidity.value']);
+  if (humidity !== null) {
+    metrics.push({ label: 'Humidity', value: `${humidity.toFixed(0)}%` });
+  }
+
+  const light = readNumberAtPaths(metadata, ['stats.light.value', 'light', 'light.value']);
+  if (light !== null) {
+    metrics.push({ label: 'Light', value: `${light.toFixed(0)} lux` });
+  }
+
+  const coAlarm = boolToState(
+    readBooleanAtPaths(metadata, ['isCoAlarmDetected', 'stats.isCoAlarmDetected', 'stats.co.isAlarmDetected']),
+    'alarm',
+    'clear',
+  );
+  if (coAlarm) {
+    metrics.push({ label: 'CO', value: coAlarm });
+  }
+
+  return metrics;
+}
+
 export async function registerDeviceRoutes(app: FastifyInstance, container: AppContainer): Promise<void> {
   app.get('/api/devices', async (request) => {
     await request.jwtVerify();
@@ -47,9 +184,27 @@ export async function registerDeviceRoutes(app: FastifyInstance, container: AppC
           const sensorState =
             device.kind === 'SENSOR'
               ? {
-                  state: readString(metadata, ['state', 'sensorStatus', 'status']) ?? 'unknown',
-                  batteryLevel: readNumber(metadata, ['battery', 'batteryLevel', 'batteryPercent']),
-                  signalLevel: readNumber(metadata, ['signalStrength', 'signalLevel', 'rssi']),
+                  state:
+                    readString(metadata, ['state', 'sensorStatus', 'status']) ??
+                    readStringAtPaths(metadata, ['stats.state', 'stats.connectionState']) ??
+                    (device.isOnline ? 'CONNECTED' : 'OFFLINE'),
+                  batteryLevel:
+                    readNumber(metadata, ['battery', 'batteryLevel', 'batteryPercent']) ??
+                    readNumberAtPaths(metadata, [
+                      'batteryStatus.percentage',
+                      'batteryStatus.value',
+                      'stats.battery.value',
+                      'stats.battery.percentage',
+                    ]),
+                  signalLevel:
+                    readNumber(metadata, ['signalStrength', 'signalLevel', 'rssi']) ??
+                    readNumberAtPaths(metadata, [
+                      'bluetoothConnectionState.signalQuality',
+                      'wifiConnectionState.signalQuality',
+                      'stats.signal.value',
+                      'stats.signal.rssi',
+                    ]),
+                  metrics: buildSensorMetrics(metadata),
                 }
               : null;
 
