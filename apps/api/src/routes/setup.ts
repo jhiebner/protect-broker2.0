@@ -91,6 +91,16 @@ export async function registerSetupRoutes(app: FastifyInstance, container: AppCo
     }
   });
 
+  app.post('/api/setup/discovery', async (request, reply) => {
+    try {
+      const result = await container.bootstrapService.discoverProtectDevices();
+      return reply.code(200).send(result);
+    } catch (error) {
+      request.log.error({ error }, 'Failed to discover Protect devices.');
+      return sendSetupError(reply, error, 'Unable to discover devices from Protect.');
+    }
+  });
+
   app.post('/api/setup/finish', async (request, reply) => {
     try {
       await container.bootstrapService.finishSetup();

@@ -14,11 +14,20 @@ interface ProtectSession {
   baseUrl: string;
   cookieHeader: string;
   authenticatedAt: string;
-  bootstrapPath?: string;
+  bootstrapPath: string;
+}
+
+export interface DiscoveredProtectDevice {
+  externalId: string;
+  name: string;
+  category: string;
+  isOnline: boolean;
+  metadata: Record<string, unknown>;
 }
 
 export interface ProtectClient extends DeviceProvider {
   testConnection(settings: ProtectConnectionInput): Promise<{ ok: boolean; message?: string }>;
+  discoverDevices(settings: ProtectConnectionInput): Promise<DiscoveredProtectDevice[]>;
 }
 
 function buildBaseUrl(settings: ProtectConnectionInput): string {
@@ -52,72 +61,14 @@ export class UnifiProtectClient implements ProtectClient {
   private session: ProtectSession | null = null;
 
   async testConnection(settings: ProtectConnectionInput): Promise<{ ok: boolean; message?: string }> {
-    const baseUrl = buildBaseUrl(settings);
-
     try {
-      const loginResponse = await this.httpRequest({
-        method: 'POST',
-        url: `${baseUrl}/api/auth/login`,
-        allowSelfSignedCertificate: settings.allowSelfSignedCertificate,
-        body: {
-          username: settings.username,
-          password: settings.password,
-        },
-      });
+      const session = await this.authenticate(settings);
+      this.session = session;
 
-      if (loginResponse.statusCode === 401 || loginResponse.statusCode === 403) {
-        return {
-          ok: false,
-          message: 'Protect credentials were rejected. Verify username and password.',
-        };
-      }
-
-      if (loginResponse.statusCode < 200 || loginResponse.statusCode >= 300) {
-        return {
-          ok: false,
-          message: `Protect login returned HTTP ${loginResponse.statusCode}.`,
-        };
-      }
-
-      const cookieHeader = extractCookieHeader(loginResponse.headers);
-
-      if (!cookieHeader) {
-        return {
-          ok: false,
-          message: 'Protect login succeeded but no session cookie was returned.',
-        };
-      }
-
-      const bootstrapPaths = ['/proxy/protect/api/bootstrap', '/api/bootstrap'];
-      let bootstrapDetected: string | undefined;
-
-      for (const path of bootstrapPaths) {
-        const bootstrapResponse = await this.httpRequest({
-          method: 'GET',
-          url: `${baseUrl}${path}`,
-          allowSelfSignedCertificate: settings.allowSelfSignedCertificate,
-          headers: {
-            Cookie: cookieHeader,
-          },
-        });
-
-        if (bootstrapResponse.statusCode >= 200 && bootstrapResponse.statusCode < 300) {
-          bootstrapDetected = path;
-          break;
-        }
-      }
-
-      this.session = {
-        baseUrl,
-        cookieHeader,
-        authenticatedAt: new Date().toISOString(),
-        ...(bootstrapDetected ? { bootstrapPath: bootstrapDetected } : {}),
-      };
-
-      if (bootstrapDetected) {
+      if (session.bootstrapPath) {
         return {
           ok: true,
-          message: `Connected. Protect bootstrap endpoint detected at ${bootstrapDetected}.`,
+          message: `Connected. Protect bootstrap endpoint detected at ${session.bootstrapPath}.`,
         };
       }
 
@@ -136,12 +87,85 @@ export class UnifiProtectClient implements ProtectClient {
     }
   }
 
+  async discoverDevices(settings: ProtectConnectionInput): Promise<DiscoveredProtectDevice[]> {
+    const session = await this.authenticate(settings);
+    this.session = session;
+
+    const bootstrapResponse = await this.httpRequest({
+      method: 'GET',
+      url: `${session.baseUrl}${session.bootstrapPath}`,
+      allowSelfSignedCertificate: settings.allowSelfSignedCertificate,
+      headers: {
+        Cookie: session.cookieHeader,
+      },
+    });
+
+    if (bootstrapResponse.statusCode < 200 || bootstrapResponse.statusCode >= 300) {
+      throw new Error(`Protect bootstrap returned HTTP ${bootstrapResponse.statusCode}.`);
+    }
+
+    const payload = JSON.parse(bootstrapResponse.body) as Record<string, unknown>;
+    return normalizeDevicesFromBootstrap(payload);
+  }
+
   async connect(): Promise<void> {
     return Promise.resolve();
   }
 
   async disconnect(): Promise<void> {
     this.session = null;
+  }
+
+  private async authenticate(settings: ProtectConnectionInput): Promise<ProtectSession> {
+    const baseUrl = buildBaseUrl(settings);
+
+    const loginResponse = await this.httpRequest({
+      method: 'POST',
+      url: `${baseUrl}/api/auth/login`,
+      allowSelfSignedCertificate: settings.allowSelfSignedCertificate,
+      body: {
+        username: settings.username,
+        password: settings.password,
+      },
+    });
+
+    if (loginResponse.statusCode === 401 || loginResponse.statusCode === 403) {
+      throw new Error('Protect credentials were rejected. Verify username and password.');
+    }
+
+    if (loginResponse.statusCode < 200 || loginResponse.statusCode >= 300) {
+      throw new Error(`Protect login returned HTTP ${loginResponse.statusCode}.`);
+    }
+
+    const cookieHeader = extractCookieHeader(loginResponse.headers);
+
+    if (!cookieHeader) {
+      throw new Error('Protect login succeeded but no session cookie was returned.');
+    }
+
+    const bootstrapPaths = ['/proxy/protect/api/bootstrap', '/api/bootstrap'];
+
+    for (const path of bootstrapPaths) {
+      const bootstrapResponse = await this.httpRequest({
+        method: 'GET',
+        url: `${baseUrl}${path}`,
+        allowSelfSignedCertificate: settings.allowSelfSignedCertificate,
+        headers: {
+          Cookie: cookieHeader,
+        },
+      });
+
+      if (bootstrapResponse.statusCode >= 200 && bootstrapResponse.statusCode < 300) {
+        return {
+          baseUrl,
+          cookieHeader,
+          authenticatedAt: new Date().toISOString(),
+          bootstrapPath: path,
+        };
+      }
+    }
+
+    throw new Error('Protect login succeeded but bootstrap endpoint could not be reached.');
   }
 
   private async httpRequest(args: {
@@ -204,4 +228,68 @@ export class UnifiProtectClient implements ProtectClient {
       request.end();
     });
   }
+}
+
+function toDeviceArray(value: unknown): Array<Record<string, unknown>> {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.filter(
+    (entry): entry is Record<string, unknown> =>
+      entry !== null && typeof entry === 'object' && !Array.isArray(entry),
+  );
+}
+
+function normalizeDevicesFromBootstrap(
+  bootstrap: Record<string, unknown>,
+): DiscoveredProtectDevice[] {
+  const deviceGroups: Array<{ key: string; items: Array<Record<string, unknown>> }> = [
+    { key: 'cameras', items: toDeviceArray(bootstrap.cameras) },
+    { key: 'lights', items: toDeviceArray(bootstrap.lights) },
+    { key: 'sensors', items: toDeviceArray(bootstrap.sensors) },
+    { key: 'doorlocks', items: toDeviceArray(bootstrap.doorlocks) },
+    { key: 'bridges', items: toDeviceArray(bootstrap.bridges) },
+    { key: 'chimes', items: toDeviceArray(bootstrap.chimes) },
+    { key: 'viewers', items: toDeviceArray(bootstrap.viewers) },
+    { key: 'liveviews', items: toDeviceArray(bootstrap.liveviews) },
+  ];
+
+  const discovered: DiscoveredProtectDevice[] = [];
+
+  for (const group of deviceGroups) {
+    for (const raw of group.items) {
+      const externalId =
+        (typeof raw.id === 'string' && raw.id) ||
+        (typeof raw.mac === 'string' && raw.mac) ||
+        (typeof raw.uuid === 'string' && raw.uuid) ||
+        '';
+
+      if (!externalId) {
+        continue;
+      }
+
+      const name =
+        (typeof raw.name === 'string' && raw.name) ||
+        (typeof raw.displayName === 'string' && raw.displayName) ||
+        `${group.key}-${externalId.slice(0, 6)}`;
+
+      const isOnline =
+        typeof raw.isConnected === 'boolean'
+          ? raw.isConnected
+          : typeof raw.isOnline === 'boolean'
+            ? raw.isOnline
+            : false;
+
+      discovered.push({
+        externalId,
+        name,
+        category: group.key,
+        isOnline,
+        metadata: raw,
+      });
+    }
+  }
+
+  return discovered;
 }

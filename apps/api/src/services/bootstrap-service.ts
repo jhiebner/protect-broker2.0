@@ -3,6 +3,7 @@ import type { Prisma, PrismaClient } from '@prisma/client';
 import type { EventBus } from '@protect-broker/broker-core';
 import type { ProtectClient } from '@protect-broker/protect-client';
 import {
+  type DeviceKind,
   bootstrapStateSchema,
   dashboardPreferencesSchema,
   farmProfileSchema,
@@ -17,7 +18,7 @@ import {
   type SetupAdminInput,
 } from '@protect-broker/shared';
 
-import { encryptString } from '../lib/crypto.js';
+import { decryptString, encryptString } from '../lib/crypto.js';
 
 const SETTING_KEYS = {
   systemSetup: 'system.setup',
@@ -110,6 +111,70 @@ export class BootstrapService {
     await this.writeSetting(SETTING_KEYS.dashboard, payload);
   }
 
+  async discoverProtectDevices(): Promise<{ discovered: number; saved: number }> {
+    const protectSettings = await this.readSetting<{
+      host: string;
+      port: number;
+      username: string;
+      encryptedPassword: string;
+      allowSelfSignedCertificate?: boolean;
+    }>(SETTING_KEYS.protect);
+
+    if (!protectSettings) {
+      throw new Error('Protect connection must be configured before discovery can run.');
+    }
+
+    const discoveredDevices = await this.deps.protectClient.discoverDevices({
+      host: protectSettings.host,
+      port: protectSettings.port,
+      username: protectSettings.username,
+      password: decryptString(protectSettings.encryptedPassword, this.deps.instanceSecret),
+      allowSelfSignedCertificate: protectSettings.allowSelfSignedCertificate ?? true,
+    });
+
+    let saved = 0;
+
+    for (const device of discoveredDevices) {
+      await this.deps.prisma.device.upsert({
+        where: {
+          provider_externalId: {
+            provider: 'unifi-protect',
+            externalId: device.externalId,
+          },
+        },
+        update: {
+          name: device.name,
+          kind: mapProtectCategoryToDeviceKind(device.category),
+          isOnline: device.isOnline,
+          metadata: device.metadata as Prisma.InputJsonValue,
+          lastSeenAt: new Date(),
+        },
+        create: {
+          provider: 'unifi-protect',
+          externalId: device.externalId,
+          name: device.name,
+          kind: mapProtectCategoryToDeviceKind(device.category),
+          isOnline: device.isOnline,
+          metadata: device.metadata as Prisma.InputJsonValue,
+          lastSeenAt: new Date(),
+        },
+      });
+
+      saved += 1;
+    }
+
+    this.deps.eventBus.emit('protect.connection', {
+      status: 'connected',
+      at: new Date().toISOString(),
+      detail: `Discovered ${discoveredDevices.length} devices from Protect bootstrap.`,
+    });
+
+    return {
+      discovered: discoveredDevices.length,
+      saved,
+    };
+  }
+
   async finishSetup(): Promise<void> {
     const bootstrapState = await this.getBootstrapState();
 
@@ -183,5 +248,22 @@ export class BootstrapService {
       action,
       at: createdAt,
     });
+  }
+}
+
+function mapProtectCategoryToDeviceKind(category: string): DeviceKind {
+  switch (category) {
+    case 'cameras':
+      return 'CAMERA';
+    case 'lights':
+      return 'LIGHT';
+    case 'sensors':
+      return 'SENSOR';
+    case 'doorlocks':
+      return 'LOCK';
+    case 'bridges':
+      return 'HUB';
+    default:
+      return 'OTHER';
   }
 }

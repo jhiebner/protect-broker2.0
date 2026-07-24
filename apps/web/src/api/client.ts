@@ -65,6 +65,12 @@ export class ApiClient {
     });
   }
 
+  async discoverDevices(): Promise<{ discovered: number; saved: number }> {
+    return this.request('/api/setup/discovery', {
+      method: 'POST',
+    });
+  }
+
   async finishSetup(): Promise<void> {
     await this.request('/api/setup/finish', {
       method: 'POST',

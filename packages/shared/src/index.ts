@@ -7,7 +7,18 @@ export const userRoleSchema = z.enum([
   'VIEWER',
 ]);
 
+export const deviceKindSchema = z.enum([
+  'HUB',
+  'SENSOR',
+  'RELAY',
+  'CAMERA',
+  'LOCK',
+  'LIGHT',
+  'OTHER',
+]);
+
 export type UserRole = z.infer<typeof userRoleSchema>;
+export type DeviceKind = z.infer<typeof deviceKindSchema>;
 
 export const loginRequestSchema = z.object({
   username: z.string().trim().min(3).max(64),

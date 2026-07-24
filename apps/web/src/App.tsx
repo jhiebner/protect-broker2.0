@@ -65,6 +65,7 @@ export function App() {
         onSaveProtectConnection={(payload) => apiClient.saveProtectConnection(payload)}
         onSaveFarmProfile={(payload) => apiClient.saveFarmProfile(payload)}
         onSaveDashboardPreferences={(payload) => apiClient.saveDashboardPreferences(payload)}
+        onDiscoverDevices={() => apiClient.discoverDevices()}
         onFinish={async (credentials) => {
           await apiClient.finishSetup();
           await refreshBootstrap();

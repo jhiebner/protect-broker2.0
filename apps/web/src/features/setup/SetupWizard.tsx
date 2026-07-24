@@ -41,6 +41,7 @@ interface SetupWizardProps {
   onSaveProtectConnection: (payload: ProtectConnectionInput) => Promise<void>;
   onSaveFarmProfile: (payload: FarmProfileInput) => Promise<void>;
   onSaveDashboardPreferences: (payload: DashboardPreferencesInput) => Promise<void>;
+  onDiscoverDevices: () => Promise<{ discovered: number; saved: number }>;
   onFinish: (credentials?: { username: string; password: string }) => Promise<void>;
 }
 
@@ -51,6 +52,7 @@ export function SetupWizard({
   onSaveProtectConnection,
   onSaveFarmProfile,
   onSaveDashboardPreferences,
+  onDiscoverDevices,
   onFinish,
 }: SetupWizardProps) {
   const initialStep = useMemo(() => {
@@ -167,6 +169,12 @@ export function SetupWizard({
         await onSaveFarmProfile(farm);
         setSeverity('success');
         setMessage('Farm profile saved.');
+      }
+
+      if (activeStep === 3) {
+        const result = await onDiscoverDevices();
+        setSeverity('success');
+        setMessage(`Discovery complete. Found ${result.discovered} devices and saved ${result.saved}.`);
       }
 
       if (activeStep === 4) {
