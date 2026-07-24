@@ -1,7 +1,7 @@
 import bcrypt from 'bcrypt';
 import type { Prisma, PrismaClient } from '@prisma/client';
 import type { EventBus } from '@protect-broker/broker-core';
-import type { StubProtectClient } from '@protect-broker/protect-client';
+import type { ProtectClient } from '@protect-broker/protect-client';
 import {
   bootstrapStateSchema,
   dashboardPreferencesSchema,
@@ -28,7 +28,7 @@ const SETTING_KEYS = {
 
 interface BootstrapServiceDependencies {
   prisma: PrismaClient;
-  protectClient: StubProtectClient;
+  protectClient: ProtectClient;
   eventBus: EventBus;
   instanceSecret: Buffer;
 }
@@ -96,7 +96,7 @@ export class BootstrapService {
     this.deps.eventBus.emit('protect.connection', {
       status: 'pending',
       at: new Date().toISOString(),
-      detail: 'Protect configuration stored. Live connection arrives in Phase 2.',
+      detail: 'Protect configuration stored.',
     });
   }
 

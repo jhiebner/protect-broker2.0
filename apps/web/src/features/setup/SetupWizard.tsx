@@ -114,8 +114,8 @@ export function SetupWizard({
 
       if (activeStep === 1) {
         await onSaveProtectConnection(protect);
-        setSeverity('warning');
-        setMessage('Protect connection saved. Live protocol support lands in Phase 2.');
+        setSeverity('success');
+        setMessage('Protect connection saved.');
       }
 
       if (activeStep === 2) {
