@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 
-export interface BrokerEventMap {
+export type BrokerEventMap = {
   'bootstrap.updated': {
     setupComplete: boolean;
     at: string;
@@ -19,7 +19,7 @@ export interface BrokerEventMap {
     at: string;
     detail?: string;
   };
-}
+};
 
 type EventKey<T> = Extract<keyof T, string>;
 type EventHandler<T, K extends EventKey<T>> = (payload: T[K]) => void;
