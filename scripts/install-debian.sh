@@ -208,7 +208,13 @@ run_database_setup() {
 	source "${ENV_FILE}"
 	set +a
 	npm run prisma:generate -w @protect-broker/database
-	npm run db:migrate
+
+	if npm run prisma:migrate:deploy -w @protect-broker/database; then
+		log "Prisma migrations deployed successfully."
+	else
+		log "No deployable migrations or migration deploy failed; applying schema with prisma db push for Phase 1 bootstrap."
+		npm run prisma:push -w @protect-broker/database
+	fi
 	popd >/dev/null
 }
 
