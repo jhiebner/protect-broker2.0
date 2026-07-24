@@ -201,6 +201,7 @@ install_dependencies_and_build() {
 
 run_database_setup() {
 	log "Generating Prisma client and applying database migrations."
+	local migrations_dir
 
 	pushd "${INSTALL_DIR}" >/dev/null
 	set -a
@@ -208,11 +209,14 @@ run_database_setup() {
 	source "${ENV_FILE}"
 	set +a
 	npm run prisma:generate -w @protect-broker/database
+	migrations_dir="${INSTALL_DIR}/packages/database/prisma/migrations"
 
-	if npm run prisma:migrate:deploy -w @protect-broker/database; then
+	if [[ -d "${migrations_dir}" ]] && [[ -n "$(find "${migrations_dir}" -mindepth 1 -maxdepth 1 -type d -print -quit)" ]]; then
+		log "Migration files detected; running prisma migrate deploy."
+		npm run prisma:migrate:deploy -w @protect-broker/database
 		log "Prisma migrations deployed successfully."
 	else
-		log "No deployable migrations or migration deploy failed; applying schema with prisma db push for Phase 1 bootstrap."
+		log "No migration files detected; applying schema with prisma db push for Phase 1 bootstrap."
 		npm run prisma:push -w @protect-broker/database
 	fi
 	popd >/dev/null
