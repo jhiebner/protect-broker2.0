@@ -143,7 +143,8 @@ sync_application_files() {
 }
 
 generate_password() {
-	openssl rand -base64 24 | tr -d '\n'
+	# Hex output avoids URL parsing issues in DATABASE_URL userinfo.
+	openssl rand -hex 24 | tr -d '\n'
 }
 
 setup_local_postgres() {
